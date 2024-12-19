@@ -17,14 +17,19 @@ class MusicFullscreenUI(UIComponent):
             self.close()
             return
         with self.mili.begin(
-            ((0, 0), self.app.window.size),
-            {"ignore_grid": True} | mili.PADLESS,
+            ((0, 0), self.app.split_size),
+            {"ignore_grid": True, "blocking": None} | mili.PADLESS,
         ):
             self.mili.image(
                 SURF, {"fill": True, "fill_color": (0, 0, 0, 255), "cache": self.cache}
             )
 
             cover = self.app.music_cover_image
+            current = (
+                self.app.music_controls.async_videoclip is not None
+                and self.app.music_controls.music_videoclip_cover is not None
+                and not self.app.music_paused
+            )
             if self.app.music.cover is not None:
                 cover = self.app.music.cover
             if (
@@ -35,9 +40,7 @@ class MusicFullscreenUI(UIComponent):
             if cover is None:
                 self.close()
             else:
-                self.mili.image_element(
-                    cover,
-                    {"cache": self.music_cache} | mili.PADLESS,
+                it = self.mili.element(
                     (
                         0,
                         0,
@@ -46,7 +49,19 @@ class MusicFullscreenUI(UIComponent):
                         - self.app.music_controls.cont_height
                         - self.app.tbarh,
                     ),
-                    {"fillx": True},
+                    {"fillx": True, "blocking": None},
+                )
+                scaled = False
+                if current:
+                    self.app.music_controls.videoclip_rects.append((0, it.data.rect))
+                    if it.data.rect.size in (
+                        out := self.app.music_controls.async_videoclip.scaled_output
+                    ):
+                        cover = out[it.data.rect.size]
+                        scaled = True
+                self.mili.image(
+                    cover,
+                    {"cache": self.music_cache, "ready": scaled} | mili.PADLESS,
                 )
 
             self.ui_overlay_btn(

@@ -17,7 +17,8 @@ class RenameMusicUI(UIComponent):
     def ui(self):
         self.mili.id_checkpoint(3000 + 250)
         with self.mili.begin(
-            ((0, 0), self.app.window.size), {"ignore_grid": True} | mili.CENTER
+            ((0, 0), self.app.split_size),
+            {"ignore_grid": True, "blocking": None} | mili.CENTER,
         ):
             self.mili.image(
                 SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
@@ -30,6 +31,7 @@ class RenameMusicUI(UIComponent):
                     "resizey": True,
                     "align": "center",
                     "offset": (0, -self.app.tbarh),
+                    "blocking": None,
                 },
             ):
                 self.mili.rect({"color": (MODAL_CV,) * 3, "border_radius": "5"})
@@ -42,16 +44,19 @@ class RenameMusicUI(UIComponent):
 
     def ui_modal_content(self):
         self.mili.text_element(
-            "Rename Music", {"size": self.mult(26)}, None, mili.CENTER
+            "Rename Music",
+            {"size": self.mult(26)},
+            None,
+            mili.CENTER | {"blocking": None},
         )
         self.entryline.update(self.app)
-        self.mili.element(None)
+        self.mili.element(None, {"blocking": None})
         self.entryline.ui(
             self.mili,
             pygame.Rect(
                 0,
                 0,
-                mili.percentage(80, self.app.window.size[0] / 1.35),
+                mili.percentage(80, self.app.split_w / 1.35),
                 self.mult(35),
             ),
             {"align": "center"},
@@ -69,11 +74,11 @@ class RenameMusicUI(UIComponent):
                 "size": self.mult(16),
                 "color": (150,) * 3,
                 "growx": False,
-                "wraplen": mili.percentage(70, self.app.window.size[0]),
+                "wraplen": mili.percentage(70, self.app.split_w),
                 "slow_grow": True,
             },
             None,
-            {"fillx": True},
+            {"fillx": True, "blocking": None},
         )
 
     def action_confirm(self):

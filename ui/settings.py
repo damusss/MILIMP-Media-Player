@@ -28,7 +28,8 @@ class SettingsUI(UIComponent):
     def ui(self):
         self.mili.id_checkpoint(3000 + 400)
         with self.mili.begin(
-            ((0, 0), self.app.window.size), {"ignore_grid": True} | mili.CENTER
+            ((0, 0), self.app.split_size),
+            {"ignore_grid": True, "blocking": None} | mili.CENTER,
         ):
             self.mili.image(
                 SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
@@ -42,6 +43,7 @@ class SettingsUI(UIComponent):
                     "align": "center",
                     "spacing": self.mult(13),
                     "offset": (0, -self.app.tbarh),
+                    "blocking": None,
                 },
             ):
                 self.mili.rect({"color": (MODAL_CV,) * 3, "border_radius": "5"})
@@ -53,7 +55,9 @@ class SettingsUI(UIComponent):
             )
 
     def ui_modal_content(self):
-        self.mili.text_element("Settings", {"size": self.mult(26)}, None, mili.CENTER)
+        self.mili.text_element(
+            "Settings", {"size": self.mult(26)}, None, mili.CENTER | {"blocking": None}
+        )
         self.ui_slider()
         self.ui_buttons_top()
         self.ui_buttons_bottom()
@@ -67,6 +71,7 @@ class SettingsUI(UIComponent):
                 "axis": "x",
                 "clip_draw": False,
                 "align": "center",
+                "blocking": None,
             }
             | mili.PADLESS,
         ):
@@ -110,6 +115,7 @@ class SettingsUI(UIComponent):
                 "axis": "x",
                 "clip_draw": False,
                 "align": "center",
+                "blocking": None,
             }
             | mili.PADLESS,
         ):

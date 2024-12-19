@@ -22,7 +22,7 @@ class EditKeybindsUI(UIComponent):
         handle_arrow_scroll(self.app, self.scroll, self.scrollbar)
 
         with self.mili.begin(
-            ((0, 0), self.app.window.size), {"ignore_grid": True} | mili.CENTER
+            ((0, 0), self.app.split_size), {"ignore_grid": True} | mili.CENTER
         ):
             self.mili.image(
                 SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
@@ -37,9 +37,11 @@ class EditKeybindsUI(UIComponent):
                     "spacing": self.mult(13),
                     "offset": (
                         0,
-                        -self.mult(50) * (self.app.music is not None)
+                        -self.mult(50)
+                        * (self.app.music is not None and not self.app.split_screen)
                         - self.app.tbarh / 2,
                     ),
+                    "blocking": None,
                 }
                 | mili.PADLESS,
             ):
@@ -59,10 +61,17 @@ class EditKeybindsUI(UIComponent):
     def ui_modal_content(self):
         with self.mili.begin(
             None,
-            mili.RESIZE | mili.PADLESS | mili.CENTER | mili.X | {"clip_draw": False},
+            mili.RESIZE
+            | mili.PADLESS
+            | mili.CENTER
+            | mili.X
+            | {"clip_draw": False, "blocking": None},
         ):
             self.mili.text_element(
-                "Keybindings", {"size": self.mult(26)}, None, mili.CENTER
+                "Keybindings",
+                {"size": self.mult(26)},
+                None,
+                mili.CENTER | {"blocking": None},
             )
             self.ui_image_btn(
                 self.app.reset_image,
@@ -78,14 +87,16 @@ class EditKeybindsUI(UIComponent):
             self.scroll.update(cont)
             self.scrollbar.short_size = self.mult(self.sbar_size)
             self.scrollbar.update(cont)
-            for name, bind in Keybinds.instance.keybinds.items():
-                self.ui_keybind(name, bind)
             self.ui_scrollbar()
-        self.mili.element(None)
+            for name, bind in Keybinds.instance.keybinds.items():
+                self.ui_keybind(name, bind, cont.data)
+        self.mili.element(None, {"blocking": None})
 
     def ui_scrollbar(self):
         if self.scrollbar.needed:
-            with self.mili.begin(self.scrollbar.bar_rect, self.scrollbar.bar_style):
+            with self.mili.begin(
+                self.scrollbar.bar_rect, self.scrollbar.bar_style | {"blocking": None}
+            ):
                 self.mili.rect({"color": (BSBAR_CV,) * 3})
                 if handle := self.mili.element(
                     self.scrollbar.handle_rect, self.scrollbar.handle_style
@@ -100,7 +111,7 @@ class EditKeybindsUI(UIComponent):
                         self.app.cursor_hover = True
                         self.app.tick_tooltip(None)
 
-    def ui_keybind(self, name, bind: Keybinds.Binding):
+    def ui_keybind(self, name, bind: Keybinds.Binding, parent_data):
         height = self.mult(30)
         with self.mili.begin(
             (0, 0, 0, height),
@@ -111,19 +122,22 @@ class EditKeybindsUI(UIComponent):
                 "anchor": "max_spacing",
                 "offset": self.scroll.get_offset(),
                 "align": "first",
+                "blocking": None,
             },
-        ):
-            self.mili.text_element(
-                name.replace("_", " ").title(),
-                {"size": self.mult(16), "growx": False, "align": "right"},
-                None,
-                {"fillx": "35", "align": "center"},
-            )
-            self.ui_binds(bind)
+        ) as rdata:
+            if rdata.data.absolute_rect.colliderect(parent_data.absolute_rect):
+                self.mili.text_element(
+                    name.replace("_", " ").title(),
+                    {"size": self.mult(16), "growx": False, "align": "right"},
+                    None,
+                    {"fillx": "35", "align": "center", "blocking": None},
+                )
+                self.ui_binds(bind)
 
     def ui_binds(self, binding):
         with self.mili.begin(
-            None, {"fillx": "65", "filly": True} | mili.PADLESS | mili.X
+            None,
+            {"fillx": "65", "filly": True, "blocking": None} | mili.PADLESS | mili.X,
         ):
             for i in range(2):
                 display_txt = "-"
@@ -169,8 +183,8 @@ class EditKeybindsUI(UIComponent):
 
     def ui_listening(self):
         with self.mili.begin(
-            ((0, 0), self.app.window.size),
-            {"ignore_grid": True, "parent_id": 0} | mili.CENTER,
+            ((0, 0), self.app.split_size),
+            {"ignore_grid": True, "parent_id": 0, "blocking": None} | mili.CENTER,
         ):
             self.mili.image(
                 SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
@@ -185,9 +199,11 @@ class EditKeybindsUI(UIComponent):
                     "spacing": self.mult(13),
                     "offset": (
                         0,
-                        -self.mult(50) * (self.app.music is not None)
+                        -self.mult(50)
+                        * (self.app.music is not None and not self.app.split_screen)
                         - self.app.tbarh / 2,
                     ),
+                    "blocking": None,
                 },
             ):
                 self.mili.rect({"color": (MODAL_CV,) * 3, "border_radius": "5"})
@@ -197,10 +213,13 @@ class EditKeybindsUI(UIComponent):
                     | mili.PADLESS
                     | mili.CENTER
                     | mili.X
-                    | {"clip_draw": False},
+                    | {"clip_draw": False, "blocking": None},
                 ):
                     self.mili.text_element(
-                        "Listening Key", {"size": self.mult(26)}, None, mili.CENTER
+                        "Listening Key",
+                        {"size": self.mult(26)},
+                        None,
+                        mili.CENTER | {"blocking": None},
                     )
                     if self.listening_idx == 1:
                         self.ui_image_btn(
@@ -237,12 +256,12 @@ class EditKeybindsUI(UIComponent):
                     {
                         "color": color,
                         "size": self.mult(size),
-                        "wraplen": mili.percentage(75, self.app.window.size[0]),
+                        "wraplen": mili.percentage(75, self.app.split_w),
                         "growx": False,
                         "slow_grow": True,
                     },
                     None,
-                    {"fillx": True},
+                    {"fillx": True, "blocking": None},
                 )
 
     def get_key_ok(self):

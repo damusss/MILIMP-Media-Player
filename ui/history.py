@@ -18,7 +18,8 @@ class HistoryUI(UIComponent):
         handle_arrow_scroll(self.app, self.scroll, self.scrollbar)
 
         with self.mili.begin(
-            ((0, 0), self.app.window.size), {"ignore_grid": True} | mili.CENTER
+            ((0, 0), self.app.split_size),
+            {"ignore_grid": True, "blocking": None} | mili.CENTER,
         ):
             self.mili.image(
                 SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
@@ -33,9 +34,11 @@ class HistoryUI(UIComponent):
                     "spacing": self.mult(13),
                     "offset": (
                         0,
-                        -self.mult(50) * (self.app.music is not None)
+                        -self.mult(50)
+                        * (self.app.music is not None and not self.app.split_screen)
                         - self.app.tbarh / 2,
                     ),
+                    "blocking": None,
                 },
             ):
                 self.mili.rect({"color": (MODAL_CV,) * 3, "border_radius": "5"})
@@ -52,10 +55,17 @@ class HistoryUI(UIComponent):
     def ui_modal_content(self):
         with self.mili.begin(
             None,
-            mili.RESIZE | mili.PADLESS | mili.CENTER | mili.X | {"clip_draw": False},
+            mili.RESIZE
+            | mili.PADLESS
+            | mili.CENTER
+            | mili.X
+            | {"clip_draw": False, "blocking": None},
         ):
             self.mili.text_element(
-                "History", {"size": self.mult(26)}, None, mili.CENTER
+                "History",
+                {"size": self.mult(26)},
+                None,
+                mili.CENTER | {"blocking": None},
             )
             self.ui_image_btn(
                 self.app.delete_image,
@@ -66,26 +76,29 @@ class HistoryUI(UIComponent):
             )
         with self.mili.begin(
             None,
-            {"fillx": True, "filly": True} | mili.PADLESS,
+            {"fillx": True, "filly": True, "blocking": None} | mili.PADLESS,
         ) as cont:
             self.scroll.update(cont)
             self.scrollbar.short_size = self.mult(self.sbar_size)
             self.scrollbar.update(cont)
+            self.ui_scrollbar()
             for history in reversed(self.app.history_data):
-                self.ui_history(history)
+                self.ui_history(history, cont.data.absolute_rect)
             if len(self.app.history_data) <= 0:
                 self.mili.text_element(
                     "No music in history",
                     {"size": self.mult(20), "color": (200,) * 3},
                     None,
-                    {"align": "center"},
+                    {"align": "center", "blocking": None},
                 )
-            self.ui_scrollbar()
-        self.mili.element((0, 0, 0, self.mult(4)))
+
+        self.mili.element((0, 0, 0, self.mult(4)), {"blocking": None})
 
     def ui_scrollbar(self):
         if self.scrollbar.needed:
-            with self.mili.begin(self.scrollbar.bar_rect, self.scrollbar.bar_style):
+            with self.mili.begin(
+                self.scrollbar.bar_rect, self.scrollbar.bar_style | {"blocking": None}
+            ):
                 self.mili.rect({"color": (BSBAR_CV,) * 3})
                 if handle := self.mili.element(
                     self.scrollbar.handle_rect, self.scrollbar.handle_style
@@ -100,7 +113,7 @@ class HistoryUI(UIComponent):
                         self.app.cursor_hover = True
                         self.app.tick_tooltip(None)
 
-    def ui_history(self, history: HistoryData):
+    def ui_history(self, history: HistoryData, parent_rect):
         if history.duration == "not cached" and history.music.pos_supported:
             history.music.cache_duration()
             history.duration = history.music.duration
@@ -119,17 +132,20 @@ class HistoryUI(UIComponent):
                 "align": "center",
             },
         ) as it:
-            self.mili.rect({"color": (cond(self.app, it, *MENUB_CV),) * 3})
-            self.ui_history_title(history)
-            self.ui_history_time(history, it.data.rect)
+            if it.data.absolute_rect.colliderect(parent_rect):
+                self.mili.rect({"color": (cond(self.app, it, *MENUB_CV),) * 3})
+                self.ui_history_title(history)
+                self.ui_history_time(history, it.data.rect)
 
-            if self.app.can_interact():
-                if it.left_just_released:
-                    self.restore_history(history)
-                if it.hovered or it.unhover_pressed:
-                    self.app.cursor_hover = True
-                if it.hovered:
-                    self.app.tick_tooltip("Restore track at position")
+                if self.app.can_interact():
+                    if it.left_just_released:
+                        self.restore_history(history)
+                    if it.hovered or it.unhover_pressed:
+                        self.app.cursor_hover = True
+                    if it.hovered:
+                        self.app.tick_tooltip("Restore track at position")
+            else:
+                self.mili.element((0, 0, 0, self.mult(60)), {"blocking": False})
 
     def ui_history_time(self, history: HistoryData, cont_rect):
         if history.music.pos_supported:
@@ -157,7 +173,7 @@ class HistoryUI(UIComponent):
                 pygame.Rect((0, 0), size).move_to(
                     bottomright=(cont_rect.w - self.mult(2), cont_rect.h - self.mult(4))
                 ),
-                {"ignore_grid": True},
+                {"ignore_grid": True, "blocking": None},
             )
 
     def ui_history_title(self, history: HistoryData):
@@ -166,7 +182,13 @@ class HistoryUI(UIComponent):
             cover = self.app.music_cover_image
         with self.mili.begin(
             None,
-            {"resizey": True, "fillx": True, "blocking": False} | mili.PADLESS | mili.X,
+            {
+                "resizey": True,
+                "fillx": True,
+                "blocking": False,
+            }
+            | mili.PADLESS
+            | mili.X,
         ):
             if cover is not None:
                 self.mili.image_element(

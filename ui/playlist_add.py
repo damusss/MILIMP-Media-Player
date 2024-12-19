@@ -21,7 +21,8 @@ class PlaylistAddUI(UIComponent):
     def ui(self):
         self.mili.id_checkpoint(3000)
         with self.mili.begin(
-            ((0, 0), self.app.window.size), {"ignore_grid": True} | mili.CENTER
+            ((0, 0), self.app.split_size),
+            {"ignore_grid": True, "blocking": None} | mili.CENTER,
         ):
             self.mili.image(
                 SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
@@ -34,12 +35,16 @@ class PlaylistAddUI(UIComponent):
                     "resizey": True,
                     "align": "center",
                     "offset": (0, -self.app.tbarh),
+                    "blocking": None,
                 },
             ):
                 self.mili.rect({"color": (MODAL_CV,) * 3, "border_radius": "5"})
 
                 self.mili.text_element(
-                    "Add", {"size": self.mult(26)}, None, mili.CENTER
+                    "Add",
+                    {"size": self.mult(26)},
+                    None,
+                    mili.CENTER | {"blocking": None},
                 )
                 self.ui_modal_content()
 
@@ -107,11 +112,12 @@ class PlaylistAddUI(UIComponent):
                     "size": self.mult(18),
                 },
                 None,
-                {"align": "center"},
+                {"align": "center", "blocking": None},
             )
         else:
             with self.mili.begin(
-                None, {"resizex": True, "resizey": True, "align": "center"}
+                None,
+                {"resizex": True, "resizey": True, "align": "center", "blocking": None},
             ):
                 self.ui_selected_paths()
         with self.mili.begin(
@@ -122,6 +128,7 @@ class PlaylistAddUI(UIComponent):
                 "clip_draw": False,
                 "axis": "x",
                 "align": "center",
+                "blocking": None,
             },
         ):
             self.ui_image_btn(
@@ -144,7 +151,7 @@ class PlaylistAddUI(UIComponent):
         self.entryline.ui(
             self.mili,
             pygame.Rect(
-                0, 0, mili.percentage(80, self.app.window.size[0] / 1.35), self.mult(35)
+                0, 0, mili.percentage(80, self.app.split_w / 1.35), self.mult(35)
             ),
             {"align": "center"},
             self.mult,
@@ -163,11 +170,11 @@ class PlaylistAddUI(UIComponent):
                 "size": self.mult(16),
                 "color": (150,) * 3,
                 "growx": False,
-                "wraplen": mili.percentage(70, self.app.window.size[0]),
+                "wraplen": mili.percentage(70, self.app.split_w),
                 "slow_grow": True,
             },
             None,
-            {"fillx": True},
+            {"fillx": True, "blocking": None},
         )
 
     def ui_selected_paths(self):
@@ -181,8 +188,8 @@ class PlaylistAddUI(UIComponent):
                     "wraplen": "100",
                     "slow_grow": True,
                 },
-                (0, 0, mili.percentage(70, self.app.window.size[0]), 0),
-                {"align": "center"},
+                (0, 0, mili.percentage(70, self.app.split_w), 0),
+                {"align": "center", "blocking": None},
             )
             if i >= 3:
                 if len(self.selected_files) - i - 1 > 0:
@@ -193,7 +200,7 @@ class PlaylistAddUI(UIComponent):
                             "size": self.mult(17),
                         },
                         None,
-                        {"align": "center"},
+                        {"align": "center", "blocking": None},
                     )
                 break
 

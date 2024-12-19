@@ -2,4 +2,3 @@ pygame-ce>=2.5.1
 mili-ui>=1.0.0
 moviepy>=1.0.3
 pypresence>=4.3.0
-PySDL2>=0.9.16

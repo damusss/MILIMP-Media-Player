@@ -24,7 +24,8 @@ class ChangeCoverUI(UIComponent):
     def ui(self):
         self.mili.id_checkpoint(3000 + 50)
         with self.mili.begin(
-            ((0, 0), self.app.window.size), {"ignore_grid": True} | mili.CENTER
+            ((0, 0), self.app.split_size),
+            {"ignore_grid": True, "blocking": None} | mili.CENTER,
         ):
             self.mili.image(
                 SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
@@ -37,6 +38,7 @@ class ChangeCoverUI(UIComponent):
                     "resizey": True,
                     "align": "center",
                     "offset": (0, -self.app.tbarh),
+                    "blocking": None,
                 },
             ):
                 self.mili.rect({"color": (MODAL_CV,) * 3, "border_radius": "5"})
@@ -49,7 +51,10 @@ class ChangeCoverUI(UIComponent):
 
     def ui_modal_content(self):
         self.mili.text_element(
-            "Change Cover", {"size": self.mult(26)}, None, mili.CENTER
+            "Change Cover",
+            {"size": self.mult(26)},
+            None,
+            mili.CENTER | {"blocking": None},
         )
         self.ui_selected_image()
         with self.mili.begin(
@@ -60,6 +65,7 @@ class ChangeCoverUI(UIComponent):
                 "axis": "x",
                 "clip_draw": False,
                 "align": "center",
+                "blocking": None,
             },
         ):
             self.ui_image_btn(
@@ -92,13 +98,13 @@ class ChangeCoverUI(UIComponent):
     def ui_selected_image(self):
         if self.selected_image is not None:
             size = mili.percentage(
-                50, min(self.app.window.size[0], self.app.window.size[1] / 1.5)
+                50, min(self.app.split_w, self.app.window.size[1] / 1.5)
             )
             self.mili.image_element(
                 self.selected_image,
                 {"cache": self.img_cache},
                 (0, 0, size, size),
-                {"align": "center"},
+                {"align": "center", "blocking": None},
             )
         else:
             self.mili.text_element(
@@ -111,7 +117,7 @@ class ChangeCoverUI(UIComponent):
                     "growx": False,
                 },
                 None,
-                {"fillx": True},
+                {"fillx": True, "blocking": None},
             )
 
     def ui_info(self):
@@ -121,11 +127,11 @@ class ChangeCoverUI(UIComponent):
                 "size": self.mult(16),
                 "color": (150,) * 3,
                 "growx": False,
-                "wraplen": mili.percentage(70, self.app.window.size[0]),
+                "wraplen": mili.percentage(70, self.app.split_w),
                 "slow_grow": True,
             },
             None,
-            {"fillx": True},
+            {"fillx": True, "blocking": None},
         )
 
     def action_confirm(self):

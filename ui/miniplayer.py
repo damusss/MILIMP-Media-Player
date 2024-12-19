@@ -9,21 +9,17 @@ class MiniplayerUI:
         self.app = app
         self.window = None
         self.focused = False
-        self.mili = mili.MILI(None)
+        self.mili = mili.MILI(None, True)
         self.press_pos = pygame.Vector2()
         self.rel_pos = pygame.Vector2()
+        self.last_pressed = False
         self.ui_mult = 1
-        self.canresize = False
         self.cover_cache = mili.ImageCache()
         self.bg_cache = mili.ImageCache()
         self.anims = [animation(-5) for i in range(3)]
         self.controls_rect = pygame.Rect()
         self.bg_surf = pygame.Surface((1, 1), pygame.SRCALPHA)
         self.hovered = False
-        self.pressed = False
-        self.click_event = False
-        self.start_time = pygame.time.get_ticks()
-        self.mouse_data = []
         self.last_size = MINIP_PREFERRED_SIZES
         self.last_pos = None
         self.last_borderless = True
@@ -77,20 +73,16 @@ class MiniplayerUI:
             self.window.flash(pygame.FLASH_BRIEFLY)
         except Exception:
             pass
-        self.canresize = False
         self.focused = True
-        self.start_time = pygame.time.get_ticks()
         self.mouse_data = []
         self.custom_borders.window = self.window
 
     def action_toggle_border(self):
-        if self.canresize:
+        if not self.window.borderless:
             self.window.borderless = True
-            self.canresize = False
             self.window.resizable = True
         else:
             self.window.borderless = False
-            self.canresize = True
             self.window.resizable = True
 
     def save_state(self):
@@ -115,70 +107,36 @@ class MiniplayerUI:
         )
 
     def can_abs_interact(self):
-        if self.app.sdl2 is not None:
-            return self.window is not None and (
-                (not self.app.focused and self.hovered) or self.focused
-            )
-        return self.focused and self.window is not None
+        return self.window is not None
 
     def action_back_to_app(self):
         self.close()
         self.app.window.focus()
-        self.app.window.restore()
         try:
-            self.app.window.flash(pygame.FLASH_BREIFLY)
+            self.app.window.flash(pygame.FLASH_BRIEFLY)
         except Exception:
             pass
-
-    def can_focus_click(self):
-        return self.app.sdl2 is None and self.focused
-
-    def get_hovered(self):
-        if self.app.sdl2 is None:
-            self.hovered = False
-            return
-        x = ctypes.c_int(0)
-        y = ctypes.c_int(0)
-        res = self.app.sdl2.mouse.SDL_GetGlobalMouseState(
-            ctypes.byref(x), ctypes.byref(y)
-        )
-        pos = (x.value, y.value)
-        self.hovered = pygame.Rect(self.window.position, self.window.size).collidepoint(
-            pos
-        )
-        self.mouse_data.append(pos)
-        if len(self.mouse_data) > 10:
-            self.mouse_data.pop(0)
-        if self.mouse_data[0] == (0, 0) and all(
-            pos == self.mouse_data[0] for pos in self.mouse_data
-        ):
-            if pygame.time.get_ticks() - self.start_time >= 1200:
-                self.app.sdl2 = None
-        self.click_event = False
-        if res == 1 and self.hovered and not self.pressed:
-            self.pressed = True
-        if res != 1:
-            if self.pressed:
-                self.click_event = True
-            self.pressed = False
 
     def move_window(self):
         if not self.can_interact():
             return
-
-        just = pygame.mouse.get_just_pressed()[0]
+        pressed = pygame.mouse.get_pressed(5, True)[0]
+        just = pressed and not self.last_pressed
+        self.last_pressed = pressed
         if just:
             self.rel_pos = pygame.Vector2(pygame.mouse.get_pos())
-            self.press_pos = pygame.Vector2(self.rel_pos + self.window.position)
+            self.press_pos = pygame.Vector2(pygame.mouse.get_pos(True))
 
-        if pygame.mouse.get_pressed()[0] and not just:
-            new = pygame.Vector2(self.window.position) + pygame.mouse.get_pos()
+        if pressed and self.hovered:
+            gmpos = pygame.mouse.get_pos(True)
             self.window.position = (
-                self.press_pos + (new - self.press_pos) - self.rel_pos
+                self.press_pos + (gmpos - self.press_pos) - self.rel_pos
             )
 
     def ui(self):
-        self.get_hovered()
+        self.hovered = pygame.Rect(self.window.position, self.window.size).collidepoint(
+            pygame.mouse.get_pos(True)
+        )
         self.custom_borders.titlebar_height = self.window.size[1]
         if self.window.borderless:
             if self.can_abs_interact():
@@ -196,16 +154,21 @@ class MiniplayerUI:
         )
 
         self.ui_cover()
-        if self.app.sdl2 is None or self.hovered:
+        self.mili.id_checkpoint(20)
+        if self.hovered:
             self.ui_controls()
+        self.mili.id_checkpoint(100)
         self.ui_line()
 
-        if self.app.sdl2 is None or self.hovered:
+        if self.hovered:
+            self.mili.id_checkpoint(150)
             self.ui_top_btn(self.back_image, "left", self.action_back_to_app)
             if self.window is None:
                 return
             self.ui_top_btn(
-                self.app.resize_image if not self.canresize else self.borderless_image,
+                self.app.resize_image
+                if self.window.borderless
+                else self.borderless_image,
                 "rightleft",
                 self.action_toggle_border,
             )
@@ -226,27 +189,38 @@ class MiniplayerUI:
             pygame.Rect(0, 0, totalw, 2).move_to(
                 midbottom=(self.window.size[0] / 2, self.window.size[1] - self.mult(3))
             ),
-            {"align": "center", "ignore_grid": True},
+            {"align": "center", "ignore_grid": True, "blocking": None},
         )
         self.mili.line_element(
             [(-totalw / 2, 0), (-totalw / 2 + sizeperc, 0)],
             {"color": (255, 0, 0), "size": self.mult(2)},
             data.data.absolute_rect,
-            {"ignore_grid": True, "parent_id": 0, "z": 99999},
+            {"ignore_grid": True, "parent_id": 0, "z": 99999, "blocking": None},
         )
 
     def ui_cover(self):
         cover = self.app.music_cover_image
         if self.app.music.cover is not None:
             cover = self.app.music.cover
+        current = (
+            self.app.music_controls.async_videoclip is not None
+            and self.app.music_controls.music_videoclip_cover is not None
+            and not self.app.music_paused
+        )
         if self.app.music_controls.music_videoclip_cover:
             cover = self.app.music_controls.music_videoclip_cover
         if cover is None:
             return
-
-        self.mili.image_element(
-            cover, {"cache": self.cover_cache}, None, {"fillx": True, "filly": True}
-        )
+        it = self.mili.element(None, {"fillx": True, "filly": True, "blocking": None})
+        scaled = False
+        if current:
+            self.app.music_controls.videoclip_rects.append((0, it.data.rect))
+            if it.data.rect.size in (
+                out := self.app.music_controls.async_videoclip.scaled_output
+            ):
+                cover = out[it.data.rect.size]
+                scaled = True
+        self.mili.image(cover, {"cache": self.cover_cache, "ready": scaled})
 
     def ui_controls(self):
         with self.mili.begin(
@@ -328,10 +302,7 @@ class MiniplayerUI:
                     "pad": self.mult(1) + anim.value / 3,
                 },
             )
-            if (
-                (it.left_just_released and self.can_focus_click())
-                or (self.click_event and it.absolute_hover)
-            ) and self.can_interact():
+            if (it.left_just_released and self.can_interact()) and self.can_interact():
                 action()
             if it.just_hovered and self.can_interact():
                 anim.goto_b()
@@ -363,10 +334,7 @@ class MiniplayerUI:
                 },
             )
             self.mili.image(img, {"cache": mili.ImageCache.get_next_cache()})
-            if (
-                (it.left_just_released and self.can_focus_click())
-                or (self.click_event and it.absolute_hover)
-            ) and self.can_interact():
+            if (it.left_just_released and self.can_interact()) and self.can_interact():
                 action()
 
     def run(self):
@@ -374,7 +342,7 @@ class MiniplayerUI:
             return
 
         surf = self.window.get_surface()
-        self.mili.set_canva(surf)
+        self.mili.canva = surf
         surf.fill("black")
 
         self.mili.start(
@@ -384,6 +352,7 @@ class MiniplayerUI:
                 "pady": self.mult(3),
             },
             is_global=False,
+            window_position=self.window.position,
         )
         self.ui()
 

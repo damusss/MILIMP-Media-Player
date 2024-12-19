@@ -17,7 +17,8 @@ class MoveMusicUI(UIComponent):
         handle_arrow_scroll(self.app, self.scroll, self.scrollbar)
 
         with self.mili.begin(
-            ((0, 0), self.app.window.size), {"ignore_grid": True} | mili.CENTER
+            ((0, 0), self.app.split_size),
+            {"ignore_grid": True, "blocking": None} | mili.CENTER,
         ):
             self.mili.image(
                 SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
@@ -30,12 +31,16 @@ class MoveMusicUI(UIComponent):
                     "filly": "65",
                     "align": "center",
                     "offset": (0, -self.app.tbarh),
+                    "blocking": None,
                 },
             ):
                 self.mili.rect({"color": (MODAL_CV,) * 3, "border_radius": "5"})
 
                 self.mili.text_element(
-                    "Move Music", {"size": self.mult(26)}, None, mili.CENTER
+                    "Move Music",
+                    {"size": self.mult(26)},
+                    None,
+                    mili.CENTER | {"blocking": None},
                 )
                 self.mili.text_element(
                     "Select the playlist you want to move the music to"
@@ -48,11 +53,11 @@ class MoveMusicUI(UIComponent):
                         "growx": False,
                         "wraplen": "100",
                     },
-                    (0, 0, mili.percentage(80, self.app.window.size[0]), 0),
-                    {"align": "center", "fillx": True},
+                    (0, 0, mili.percentage(80, self.app.split_w), 0),
+                    {"align": "center", "fillx": True, "blocking": None},
                 )
                 self.ui_playlists()
-                self.mili.element((0, 0, 0, self.mult(5)))
+                self.mili.element((0, 0, 0, self.mult(5)), {"blocking": None})
 
             self.ui_overlay_btn(
                 self.anim_close, self.close, self.app.close_image, tooltip="Close"
@@ -111,7 +116,9 @@ class MoveMusicUI(UIComponent):
 
     def ui_scrollbar(self):
         if self.scrollbar.needed:
-            with self.mili.begin(self.scrollbar.bar_rect, self.scrollbar.bar_style):
+            with self.mili.begin(
+                self.scrollbar.bar_rect, self.scrollbar.bar_style | {"blocking": None}
+            ):
                 self.mili.rect({"color": (BSBAR_CV,) * 3})
                 if handle := self.mili.element(
                     self.scrollbar.handle_rect, self.scrollbar.handle_style

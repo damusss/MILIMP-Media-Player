@@ -171,7 +171,7 @@ class PlaylistViewerUI(UIComponent):
 
     def ui_container(self):
         with self.mili.begin(
-            (0, 0, self.app.window.size[0], 0),
+            (0, 0, self.app.split_w, 0),
             {"filly": True},
         ) as scroll_cont:
             if self.search_active:
@@ -187,9 +187,10 @@ class PlaylistViewerUI(UIComponent):
                 self.mili.id_checkpoint(50)
                 done_groups = []
                 last_group = None
+                off_screen = False
 
                 for group in self.playlist.groups:
-                    if len(group.musics) <= 0:
+                    if len(group.musics) <= 0 and not self.search_active:
                         self.ui_group(group, empty=True)
 
                 for path in paths:
@@ -216,14 +217,14 @@ class PlaylistViewerUI(UIComponent):
                     if music.pending:
                         self.ui_pending(music)
                         continue
-                    self.ui_music(music)
+                    off_screen = self.ui_music(music, off_screen)
 
                 self.mili.text_element(
                     f"{len(self.playlist.musiclist)} track{
                         "s" if len(self.playlist.musiclist) > 1 else ""}",
                     {"size": self.mult(19), "color": (170,) * 3},
                     None,
-                    {"offset": self.scroll.get_offset()},
+                    {"offset": self.scroll.get_offset(), "blocking": None},
                 )
 
             else:
@@ -233,7 +234,7 @@ class PlaylistViewerUI(UIComponent):
                     else "No tracks",
                     {"size": self.mult(20), "color": (200,) * 3},
                     None,
-                    {"align": "center"},
+                    {"align": "center", "blocking": None},
                 )
 
     def ui_group(self, group: PlaylistGroup, empty=False):
@@ -257,7 +258,7 @@ class PlaylistViewerUI(UIComponent):
         ) as cont:
             self.ui_group_bg(group, empty, cont)
             if empty:
-                self.mili.element((0, 0, self.mult(35), 0))
+                self.mili.element((0, 0, self.mult(35), 0), {"blocking": None})
             else:
                 self.mili.image_element(
                     (
@@ -294,7 +295,7 @@ class PlaylistViewerUI(UIComponent):
                 (
                     0,
                     0,
-                    self.app.window.size[0] / 1.01 - self.mult(50),
+                    self.app.split_w / 1.01 - self.mult(50),
                     0,
                 ),
                 {"align": "center", "blocking": False},
@@ -371,10 +372,10 @@ class PlaylistViewerUI(UIComponent):
 
     def ui_group_line(self):
         self.mili.line_element(
-            [(-self.app.window.size[0] / 2 + self.mult(45), 0), ("49.5", 0)],
+            [(-self.app.split_w / 2 + self.mult(45), 0), ("49.5", 0)],
             {"size": 1, "color": (80,) * 3},
             (0, 0, 0, self.mult(7)),
-            {"fillx": True, "offset": self.scroll.get_offset()},
+            {"fillx": True, "offset": self.scroll.get_offset(), "blocking": None},
         )
 
     def ui_pending(self, music: MusicData):
@@ -385,15 +386,17 @@ class PlaylistViewerUI(UIComponent):
                 "color": (170,) * 3,
                 "growx": False,
                 "slow_grow": True,
-                "wraplen": self.app.window.size[0] * 0.95,
+                "wraplen": self.app.split_w * 0.95,
             },
             None,
-            {"offset": self.scroll.get_offset(), "fillx": True},
+            {"offset": self.scroll.get_offset(), "fillx": True, "blocking": None},
         )
 
     def ui_scrollbar(self):
         if self.scrollbar.needed:
-            with self.mili.begin(self.scrollbar.bar_rect, self.scrollbar.bar_style):
+            with self.mili.begin(
+                self.scrollbar.bar_rect, self.scrollbar.bar_style | {"blocking": None}
+            ):
                 self.mili.rect({"color": (SBAR_CV,) * 3})
                 if handle := self.mili.element(
                     self.scrollbar.handle_rect, self.scrollbar.handle_style
@@ -410,13 +413,21 @@ class PlaylistViewerUI(UIComponent):
 
     def ui_title(self):
         ret = False
-        with self.mili.begin(None, mili.RESIZE | mili.PADLESS | mili.CENTER):
+        with self.mili.begin(
+            None, mili.RESIZE | mili.PADLESS | mili.CENTER | {"blocking": None}
+        ):
             coversize = 0
             if self.playlist.cover is not None:
                 coversize = self.mult(80)
                 with self.mili.begin(
                     (0, 0, 0, 0),
-                    {"resizex": True, "resizey": True, "align": "center", "axis": "x"},
+                    {
+                        "resizex": True,
+                        "resizey": True,
+                        "align": "center",
+                        "axis": "x",
+                        "blocking": None,
+                    },
                 ):
                     it = self.mili.image_element(
                         self.playlist.cover,
@@ -441,14 +452,14 @@ class PlaylistViewerUI(UIComponent):
             [("-49.5", 0), ("49.5", 0)],
             {"size": 1, "color": (100,) * 3},
             (0, 0, 0, self.mult(7)),
-            {"fillx": True},
+            {"fillx": True, "blocking": None},
         )
         return ret
 
     def ui_search(self):
         with self.mili.begin(
-            (0, 0, self.app.window.size[0] - self.mult(20), 0),
-            {"resizey": True} | mili.PADLESS | mili.X,
+            (0, 0, self.app.split_w - self.mult(20), 0),
+            {"resizey": True, "blocking": None} | mili.PADLESS | mili.X,
         ):
             size = self.mult(30)
             self.search_entryline.ui(
@@ -482,16 +493,16 @@ class PlaylistViewerUI(UIComponent):
         self.mili.image_element(
             SURF,
             {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.black_cache},
-            ((0, 0), self.app.window.size),
+            ((0, 0), (self.app.split_w, self.app.window.size[1])),
             {"ignore_grid": True, "parent_id": 0, "z": 99999, "blocking": False},
         )
-        size = mili.percentage(90, min(self.app.window.size))
+        size = mili.percentage(90, min((self.app.split_w, self.app.window.size[1])))
         self.mili.image_element(
             self.playlist.cover,
             {"cache": self.bigcover_cache, "smoothscale": True},
             pygame.Rect(0, 0, size, size).move_to(
                 center=(
-                    self.app.window.size[0] / 2,
+                    self.app.split_w / 2,
                     self.app.window.size[1] / 2,
                 )
             ),
@@ -505,17 +516,17 @@ class PlaylistViewerUI(UIComponent):
 
     def ui_title_txt(self, coversize):
         w = self.mili.text_size(self.playlist.name, {"size": self.mult(32)}).x
-        if w >= self.app.window.size[0] / 1.08 - coversize:
+        if w >= self.app.split_w / 1.08 - coversize:
             self.mili.text_element(
                 self.playlist.name,
                 {
                     "size": self.mult(32),
                     "slow_grow": True,
-                    "wraplen": self.app.window.size[0] / 1.08 - coversize,
+                    "wraplen": self.app.split_w / 1.08 - coversize,
                     "align": "left",
                 },
                 None,
-                {"align": "center"},
+                {"align": "center", "blocking": None},
             )
         else:
             self.mili.text_element(
@@ -525,7 +536,7 @@ class PlaylistViewerUI(UIComponent):
                     "align": "left",
                 },
                 None,
-                {"align": "center"},
+                {"align": "center", "blocking": None},
             )
 
     def ui_group_musics(self, group: PlaylistGroup):
@@ -542,10 +553,11 @@ class PlaylistViewerUI(UIComponent):
             }
             | mili.PADLESS,
         ) as cont:
-            if cont.data.absolute_rect.colliderect(((0, 0), self.app.window.size)):
+            if cont.data.absolute_rect.colliderect(((0, 0), self.app.split_size)):
                 for music in group.musics:
                     if mit := self.mili.element(None, {"fillx": True, "filly": True}):
                         self.ui_music_bg(mit, music)
+                        is_current = False
                         cover = music.cover_or(self.app.music_cover_image)
                         if cover is None:
                             cover = self.app.music_cover_image
@@ -556,14 +568,29 @@ class PlaylistViewerUI(UIComponent):
                             and self.app.focused
                         ):
                             cover = self.app.music_controls.music_videoclip_cover
+                            is_current = True
                         if cover is not None:
+                            scaled = False
+                            if (
+                                is_current
+                                and (av := self.app.music_controls.async_videoclip)
+                                is not None
+                            ):
+                                if mit.data.rect.size in av.scaled_output:
+                                    cover = av.scaled_output[mit.data.rect.size]
+                                    scaled = True
                             self.mili.image(
                                 cover,
                                 {
                                     "cache": mili.ImageCache.get_next_cache(),
                                     "pad": self.mult(3),
+                                    "ready": scaled,
                                 },
                             )
+                            if is_current:
+                                self.app.music_controls.videoclip_rects.append(
+                                    (self.mult(3), mit.data.rect)
+                                )
                         if music is self.app.music:
                             self.mili.image(
                                 self.app.playbars_image,
@@ -573,8 +600,15 @@ class PlaylistViewerUI(UIComponent):
                                 },
                             )
                         self.ui_music_interaction(music, mit)
+                        if self.app.can_interact() and mit.hovered:
+                            self.app.tick_tooltip(
+                                f"{parse_music_stem(self.app, music.realstem)}"
+                            )
 
-    def ui_music(self, music: MusicData):
+    def ui_music(self, music: MusicData, offscreen=False):
+        if offscreen:
+            self.mili.element((0, 0, 0, self.mult(80)), {"blocking": False})
+            return offscreen
         with self.mili.begin(
             None,
             {
@@ -590,7 +624,7 @@ class PlaylistViewerUI(UIComponent):
                 "resizey": {"min": self.mult(80)},
             },
         ) as cont:
-            if cont.data.absolute_rect.colliderect(((0, 0), self.app.window.size)):
+            if cont.data.absolute_rect.colliderect(((0, 0), self.app.split_size)):
                 self.ui_music_bg(cont, music)
                 imagesize = padsize = 0
                 if (
@@ -606,6 +640,7 @@ class PlaylistViewerUI(UIComponent):
                             {"cache": mili.ImageCache.get_next_cache()},
                         )
                 cover = music.cover_or(self.app.music_cover_image)
+                is_current = False
                 if cover is None:
                     cover = self.app.music_cover_image
                 if (
@@ -614,16 +649,26 @@ class PlaylistViewerUI(UIComponent):
                     and self.app.focused
                 ):
                     cover = self.app.music_controls.music_videoclip_cover
+                    is_current = True
                 if cover is not None:
                     imagesize = self.mult(70)
-                    self.mili.image_element(
-                        cover,
-                        {
-                            "cache": mili.ImageCache.get_next_cache(),
-                            "smoothscale": True,
-                        },
+                    cel = self.mili.element(
                         (0, 0, imagesize, imagesize),
                         {"align": "center", "blocking": False},
+                    )
+                    scaled = False
+                    if is_current:
+                        self.app.music_controls.videoclip_rects.append(
+                            (0, cel.data.rect)
+                        )
+
+                        if (av := self.app.music_controls.async_videoclip) is not None:
+                            if cel.data.rect.size in av.scaled_output:
+                                cover = av.scaled_output[cel.data.rect.size]
+                                scaled = True
+                    self.mili.image(
+                        cover,
+                        {"cache": mili.ImageCache.get_next_cache(), "ready": scaled},
                     )
                 self.mili.text_element(
                     parse_music_stem(self.app, music.realstem),
@@ -639,14 +684,17 @@ class PlaylistViewerUI(UIComponent):
                     (
                         0,
                         0,
-                        self.app.window.size[0] / 1.1 - imagesize - padsize,
+                        self.app.split_w / 1.1 - imagesize - padsize,
                         self.mult(80) / 1.1,
                     ),
                     {"align": "first", "blocking": False},
                 )
                 self.ui_music_interaction(music, cont)
             else:
-                self.mili.element((0, 0, 0, self.mult(70)))
+                self.mili.element((0, 0, 0, self.mult(70)), {"blocking": False})
+                if cont.data.absolute_rect.top > self.app.window.size[1]:
+                    offscreen = True
+        return offscreen
 
     def ui_music_interaction(self, music: MusicData, cont: mili.Interaction):
         if self.app.can_interact():

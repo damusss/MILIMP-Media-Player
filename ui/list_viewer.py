@@ -47,18 +47,21 @@ class ListViewerUI(UIComponent):
 
         self.scrollbar.short_size = self.mult(8)
         self.mili.text_element(
-            "Music Player", {"size": self.mult(35)}, None, {"align": "center"}
+            "Music Player",
+            {"size": self.mult(35)},
+            None,
+            {"align": "center", "blocking": None},
         )
         self.mili.line_element(
             [("-49.5", 0), ("49.5", 0)],
             {"size": 1, "color": (100,) * 3},
             (0, 0, 0, self.mult(10)),
-            {"fillx": True},
+            {"fillx": True, "blocking": False},
         )
 
         self.mili.id_checkpoint(45)
         with self.mili.begin(
-            (0, 0, self.app.window.size[0], 0),
+            (0, 0, self.app.split_w, 0),
             {"filly": True},
         ) as scroll_cont:
             if len(self.app.playlists) > 0:
@@ -75,7 +78,7 @@ class ListViewerUI(UIComponent):
                     f"{len(self.app.playlists)} playlist{"s" if len(self.app.playlists) > 1 else ""}",
                     {"size": self.mult(19), "color": (170,) * 3},
                     None,
-                    {"offset": self.scroll.get_offset()},
+                    {"offset": self.scroll.get_offset(), "blocking": None},
                 )
 
             else:
@@ -83,7 +86,7 @@ class ListViewerUI(UIComponent):
                     "No playlists",
                     {"size": self.mult(20), "color": (200,) * 3},
                     None,
-                    {"align": "center"},
+                    {"align": "center", "blocking": None},
                 )
 
         if self.modal_state == "none" and self.app.modal_state == "none":
@@ -101,7 +104,9 @@ class ListViewerUI(UIComponent):
 
     def ui_scrollbar(self):
         if self.scrollbar.needed:
-            with self.mili.begin(self.scrollbar.bar_rect, self.scrollbar.bar_style):
+            with self.mili.begin(
+                self.scrollbar.bar_rect, self.scrollbar.bar_style | {"blocking": None}
+            ):
                 self.mili.rect({"color": (SBAR_CV,) * 3})
                 if handle := self.mili.element(
                     self.scrollbar.handle_rect, self.scrollbar.handle_style
@@ -164,8 +169,11 @@ class ListViewerUI(UIComponent):
                     "align": "left",
                     "font_align": pygame.FONT_LEFT,
                 },
-                (0, 0, self.app.window.size[0] / 1.1 - imagesize - padsize, 0),
-                {"align": "center", "blocking": False},
+                (0, 0, self.app.split_w / 1.1 - imagesize - padsize, 0),
+                {
+                    "align": "center",
+                    "blocking": False,
+                },
             )
 
             if self.app.can_interact():

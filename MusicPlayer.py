@@ -4,6 +4,7 @@ import mili
 import time
 import pygame
 import pathlib
+import threading
 import faulthandler
 
 pygame.mixer.pre_init(buffer=2048)
@@ -25,6 +26,7 @@ from ui.data import (
     Playlist,
     NotCached,
     PlaylistGroup,
+    AsyncVideoclipGetter,
 )
 
 try:
@@ -50,7 +52,6 @@ class MusicPlayerApp(mili.GenericApp):
         self.init_load_icons()
         self.init_load_data()
         self.init_mili_settings()
-        self.init_sld2()
         self.init_try_set_icon_mac()
         self.make_bg_image()
         health_check()
@@ -69,11 +70,11 @@ class MusicPlayerApp(mili.GenericApp):
         self.window.minimum_size = WIN_MIN_SIZE
         pygame.key.set_repeat(500, 30)
         print(f"MILI {mili.VERSION_STR}")
-        if mili.VERSION < (1, 0, 0) or pygame.vernum < (2, 5, 1):
+        if mili.VERSION < (1, 0, 1) or pygame.vernum < (2, 5, 2):
             pygame.display.message_box(
                 "Outdated dependencies",
                 "The core dependencies of the music player are outdated, please update them to the latest version. "
-                f"pygame-ce: needed >=2.5.1, found {pygame.ver}. MILI: needed >=1.0.0, found {mili.VERSION_STR}. "
+                f"pygame-ce: needed >=2.5.2, found {pygame.ver}. MILI: needed >=1.0.1, found {mili.VERSION_STR}. "
                 "The application will now quit.",
                 "error",
                 None,
@@ -121,6 +122,9 @@ class MusicPlayerApp(mili.GenericApp):
         self.cursor_hover = False
         self.tooltip_hover_time = 0
         self.tooltip_data = None
+        self.split_screen = False
+        self.split_w = self.window.size[0]
+        self.split_size = self.window.size
         # be effect/mili
         self.bg_effect_image = None
         self.bg_black_image = None
@@ -200,17 +204,6 @@ class MusicPlayerApp(mili.GenericApp):
             obj = HistoryData.load_from_data(hdata, self)
             if obj is not None:
                 self.history_data.append(obj)
-
-    def init_sld2(self):
-        try:
-            import sdl2
-
-            self.sdl2 = sdl2
-        except (ModuleNotFoundError, ImportError):
-            self.sdl2 = None
-            print(
-                "\nWARNING: PySDL2 not installed. Miniplayer hover feature is disabled"
-            )
 
     def init_mili_settings(self):
         self.mili.default_styles(
@@ -393,6 +386,10 @@ class MusicPlayerApp(mili.GenericApp):
         if music.pending:
             self.end_music()
             return
+        if self.music_controls.async_videoclip is not None:
+            self.music_controls.async_videoclip.alive = False
+            self.music_controls.async_videoclip.thread.join()
+
         if self.music is not None:
             self.add_to_history()
         if not os.path.exists(music.audiopath):
@@ -417,6 +414,14 @@ class MusicPlayerApp(mili.GenericApp):
         if self.music.isvideo:
             try:
                 self.music_videoclip = moviepy.VideoFileClip(str(self.music.realpath))
+                self.music_controls.async_videoclip = AsyncVideoclipGetter(
+                    self.music_videoclip
+                )
+                thread = threading.Thread(
+                    target=self.music_controls.async_videoclip.loop
+                )
+                self.music_controls.async_videoclip.thread = thread
+                thread.start()
             except Exception:
                 pass
 
@@ -434,6 +439,9 @@ class MusicPlayerApp(mili.GenericApp):
         self.discord_presence.update()
 
     def end_music(self):
+        if self.music_controls.async_videoclip is not None:
+            self.music_controls.async_videoclip.alive = False
+            self.music_controls.async_videoclip.thread.join()
         self.close_menu()
         if self.modal_state == "fullscreen":
             self.modal_state = "none"
@@ -536,7 +544,7 @@ class MusicPlayerApp(mili.GenericApp):
         else:
             self.tbarh = 0
 
-        self.start_style = mili.PADLESS | {"spacing": int(self.ui_mult * 3)}
+        self.start_style = mili.PADLESS | {"spacing": 0}
         mili.animation.update_all()
         self.input_stolen = False
 
@@ -556,6 +564,22 @@ class MusicPlayerApp(mili.GenericApp):
         if len(mili.get_font_cache()) > 20:
             mili.clear_font_cache()
 
+        self.split_w = self.window.size[0]
+        self.split_size = self.window.size
+        self.split_screen = False
+        if (
+            self.window.size[0] >= self.window.size[1] * 1.4
+            and self.music is not None
+            and self.modal_state != "fullscreen"
+        ):
+            self.split_screen = True
+            self.split_w = self.window.size[0] / SPLIT_SCREEN
+            self.split_size = (self.split_w, self.window.size[1])
+
+        self.music_controls.videoclip_rects = []
+        if self.music_controls.async_videoclip is not None:
+            self.music_controls.async_videoclip.active = False
+
     def ui(self):
         self.mili.rect({"color": (BG_CV,) * 3, "border_radius": 0})
         if self.custom_title:
@@ -570,7 +594,22 @@ class MusicPlayerApp(mili.GenericApp):
         self.ui_bg_effect()
         self.ui_top()
 
-        with self.mili.begin(None, {"fillx": True, "filly": True} | mili.PADLESS):
+        left_perc = 100 * (self.split_w / self.window.size[0])
+        right_perc = 100 - left_perc
+        if self.split_screen:
+            self.mili.begin(
+                None,
+                mili.FILL | mili.X | mili.PADLESS | {"spacing": 0, "blocking": None},
+            )
+        with self.mili.begin(
+            None,
+            {
+                "fillx": f"{left_perc}" if self.split_screen else True,
+                "filly": True,
+                "blocking": None,
+            }
+            | mili.PADLESS,
+        ):
             self.mili.id_checkpoint(20)
             if self.modal_state != "fullscreen":
                 if self.view_state == "list":
@@ -582,7 +621,7 @@ class MusicPlayerApp(mili.GenericApp):
                     self.list_viewer.ui_check()
                 elif self.view_state == "playlist":
                     self.playlist_viewer.ui_check()
-                self.mili.element(None, {"filly": True})
+                self.mili.element(None, {"filly": True, "blocking": None})
 
             if self.modal_state == "settings":
                 self.settings.ui()
@@ -593,8 +632,9 @@ class MusicPlayerApp(mili.GenericApp):
             elif self.modal_state == "keybinds":
                 self.edit_keybinds.ui()
 
-            self.mili.id_checkpoint(5000)
-            self.music_controls.ui()
+            if not self.split_screen:
+                self.mili.id_checkpoint(5000)
+                self.music_controls.ui()
 
             self.mili.id_checkpoint(5100)
             if (
@@ -610,6 +650,23 @@ class MusicPlayerApp(mili.GenericApp):
                     tooltip="Open settings",
                 )
 
+        if self.split_screen:
+            with self.mili.begin(
+                None,
+                {
+                    "fillx": f"{right_perc}",
+                    "filly": True,
+                    "spacing": 0,
+                    "blocking": None,
+                }
+                | mili.PADLESS,
+            ):
+                self.mili.id_checkpoint(4950)
+                self.music_controls.ui_split_screen()
+                self.mili.id_checkpoint(5000)
+                self.music_controls.ui()
+            self.mili.end()
+
         if (
             self.view_state == "list"
             and self.custom_title
@@ -619,7 +676,7 @@ class MusicPlayerApp(mili.GenericApp):
                 f"developer version {DEV_VERSION}",
                 {"size": self.mult(13), "color": (100,) * 3},
                 None,
-                mili.FLOATING,
+                mili.FLOATING | {"blocking": None},
             )
 
         if self.modal_state != "none" and self.menu_data != "controls":
@@ -642,6 +699,11 @@ class MusicPlayerApp(mili.GenericApp):
 
         if not self.custom_borders.dragging and not self.custom_borders.resizing:
             self.custom_borders.cumulative_relative = pygame.Vector2()
+
+        if self.music_controls.async_videoclip is not None:
+            self.music_controls.async_videoclip.rects = (
+                self.music_controls.videoclip_rects
+            )
 
     def ui_tooltip(self):
         pad = self.mult(2)
@@ -718,8 +780,8 @@ class MusicPlayerApp(mili.GenericApp):
     def ui_bg_effect(self):
         if not self.bg_effect:
             return
-        self.mili.image(self.bg_effect_image)
-        self.mili.image(self.bg_black_image, {"cache": self.bg_cache})
+        self.mili.image(self.bg_effect_image, {"ready": True})
+        self.mili.image(self.bg_black_image, {"cache": self.bg_cache, "ready": True})
 
     def ui_menu(self):
         with self.mili.begin(
@@ -733,6 +795,7 @@ class MusicPlayerApp(mili.GenericApp):
                 "z": 9999,
                 "padx": self.mult(7),
                 "pady": self.mult(7),
+                "blocking": None,
             },
         ) as menu:
             self.mili.rect({"color": (MENU_CV[0],) * 3, "border_radius": "50"})
@@ -921,6 +984,9 @@ class MusicPlayerApp(mili.GenericApp):
                     self.action_maximize()
 
     def quit(self):
+        if self.music_controls.async_videoclip is not None:
+            self.music_controls.async_videoclip.alive = False
+            self.music_controls.async_videoclip.thread.join()
         for playlist in self.playlists:
             for music in playlist.musiclist:
                 if music.pending:

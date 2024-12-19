@@ -34,6 +34,34 @@ def convert_music_async(music: "MusicData", audiofile: moviepy.AudioClip, new_pa
 class NotCached: ...
 
 
+class AsyncVideoclipGetter:
+    def __init__(self, videoclip):
+        self.thread = None
+        self.active = False
+        self.videoclip = videoclip
+        self.time = None
+        self.output = None
+        self.scaled_output = {}
+        self.framerate = 60
+        self.alive = True
+        self.clock = pygame.Clock()
+        self.rects = []
+
+    def loop(self):
+        while self.alive:
+            self.clock.tick(self.framerate)
+            if not self.active or self.videoclip is None or self.time is None:
+                continue
+            frame = self.videoclip.get_frame(self.time)
+            self.output = pygame.image.frombytes(
+                frame.tobytes(), self.videoclip.size, "RGB"
+            )
+            self.scaled_output = {}
+            for pad, rect in self.rects:
+                res = mili.fit_image(rect, self.output, pad, pad, smoothscale=True)
+                self.scaled_output[rect.size] = res
+
+
 class MusicData:
     audiopath: pathlib.Path
     realpath: pathlib.Path

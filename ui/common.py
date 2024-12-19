@@ -4,12 +4,10 @@ import json
 import pygame
 import typing
 
-# when width is double height make the controls split screen
-
 if typing.TYPE_CHECKING:
     from MusicPlayer import MusicPlayerApp
 
-DEV_VERSION = 35
+DEV_VERSION = 36
 PREFERRED_SIZES = (415, 700)
 MINIP_PREFERRED_SIZES = 200, 200
 UI_SIZES = (480, 720)
@@ -56,6 +54,7 @@ DISCORD_COOLDOWN = 20000
 BIG_COVER_COOLDOWN = 300
 SAVE_COOLDOWN = 60000 * 2
 TOOLTIP_COOLDOWN = 1200
+SPLIT_SCREEN = 1.7
 RATIO_MIN = 0.52
 BG_CV = 3
 MUSIC_CV = 3, 18, 8
@@ -137,6 +136,8 @@ def handle_wheel_scroll(
     scroll: mili.Scroll,
     scrollbar: mili.Scrollbar = None,
 ):
+    if app.split_screen and pygame.mouse.get_pos()[0] > app.split_w:
+        return
     scroll.scroll(0, -(event.y * 50) * app.ui_mult)
     if scrollbar is not None:
         scrollbar.scroll_moved()
@@ -234,40 +235,55 @@ class UIComponent:
         image,
         side="bottom",
         tooltip=None,
+        nosplitscreen=False,
     ):
-        size = self.mult(50)
-        offset = self.mult(8)
+        size = self.mult(40 if nosplitscreen else 50)
+        offset = self.mult(5 if nosplitscreen else 8)
         xoffset = offset * 0.6
         if (
             (
-                self.app.view_state == "list"
-                and self.app.list_viewer.scrollbar.needed
-                and self.app.list_viewer.modal_state == "none"
+                (
+                    self.app.view_state == "list"
+                    and self.app.list_viewer.scrollbar.needed
+                    and self.app.list_viewer.modal_state == "none"
+                )
+                or (
+                    self.app.view_state == "playlist"
+                    and self.app.playlist_viewer.scrollbar.needed
+                    and self.app.playlist_viewer.modal_state == "none"
+                )
             )
-            or (
-                self.app.view_state == "playlist"
-                and self.app.playlist_viewer.scrollbar.needed
-                and self.app.playlist_viewer.modal_state == "none"
-            )
-        ) and self.app.modal_state == "none":
+            and self.app.modal_state == "none"
+            and not nosplitscreen
+        ):
             xoffset = offset * 1.6
+        winw = self.app.window.size[0] if nosplitscreen else self.app.split_w
+        musiccontrolsh = (
+            self.app.music_controls.cont_height
+            if (not self.app.split_screen or nosplitscreen)
+            else 0
+        )
+        extrastyle = {}
+        if nosplitscreen:
+            extrastyle = {"parent_id": 0}
         if it := self.mili.element(
             pygame.Rect(0, 0, size, size).move_to(
                 bottomright=(
-                    self.app.window.size[0] - xoffset,
+                    winw - xoffset,
                     self.app.window.size[1]
-                    - self.app.tbarh
+                    - (0 if nosplitscreen else self.app.tbarh)
                     - offset
-                    - self.app.music_controls.cont_height
+                    - musiccontrolsh
                     - {
                         "bottom": 0,
-                        "top": size + self.mult(5),
-                        "supertop": size * 2 + offset,
-                        "megatop": size * 3 + offset * 1.5,
+                        "top": size + self.mult(4),
+                        "supertop": size * 2 + offset * 1.2,
+                        "megatop": size * 3 + offset * 1.7,
+                        "ultratop": size * 4 + offset * 2.3,
                     }[side],
                 )
             ),
-            {"ignore_grid": True, "clip_draw": False},
+            {"ignore_grid": True, "clip_draw": False} | extrastyle,
         ):
             self.mili.circle(
                 {
@@ -314,6 +330,9 @@ class UIComponent:
             y = self.mili.text_size("Music Player", {"size": self.mult(35)}).y
             size = self.mult(36)
             offset = self.mult(10)
+        winw = (
+            self.app.split_w if not self.app.custom_borders else self.app.window.size[0]
+        )
         if it := self.mili.element(
             pygame.Rect(0, 0, size, size).move_to(
                 topleft=(
@@ -325,11 +344,10 @@ class UIComponent:
             )
             if side == "left"
             else pygame.Rect(0, 0, size, size).move_to(
-                topright=(self.app.window.size[0] - (size * sidei), 0)
+                topright=(winw - (size * sidei), 0)
                 if self.app.custom_title
                 else (
-                    self.app.window.size[0]
-                    - (offset if side == "right" else offset * 2 + size),
+                    winw - (offset if side == "right" else offset * 2 + size),
                     y / 2 - size / 2 + 5,
                 )
             ),

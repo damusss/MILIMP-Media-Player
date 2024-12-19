@@ -122,6 +122,7 @@ class UIEntryline:
                     "post_draw_func": functools.partial(
                         self.draw_cursor, size.x, offsetx
                     ),
+                    "blocking": None,
                 },
             ):
                 text = self.text
