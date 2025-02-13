@@ -11,14 +11,22 @@ Executable creation steps:
 import os
 import shutil
 
-if os.path.exists("MusicPlayer.exe"):
-    os.remove("MusicPlayer.exe")
+MP = "MILIMP"
+EMBED = "ytembed"
+icon = {MP: "playlist", EMBED: "playc"}
+SKIP = []
 
-os.system(
-    "pyinstaller --onefile --icon=data/icons/playlist.png --windowed MusicPlayer.py"
-)
+for app in [MP, EMBED]:
+    if app in SKIP:
+        continue
+    if os.path.exists(f"{app}.exe"):
+        os.remove(f"{app}.exe")
 
-shutil.copyfile("dist/MusicPlayer.exe", "MusicPlayer.exe")
-os.remove("MusicPlayer.spec")
-shutil.rmtree("dist")
-shutil.rmtree("build")
+    os.system(
+        f"pyinstaller --onefile --icon=appdata/icons/{icon[app]}.png --windowed {app}.py"
+    )
+
+    shutil.copyfile(f"dist/{app}.exe", f"{app}.exe")
+    os.remove(f"{app}.spec")
+    shutil.rmtree("dist")
+    shutil.rmtree("build")

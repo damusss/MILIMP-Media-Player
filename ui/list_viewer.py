@@ -1,9 +1,9 @@
 import mili
 import pygame
 from ui.common import *
-from ui.data import Playlist
-from ui.new_playlist import NewPlaylistUI
-from ui.rename_playlist import RenamePlaylistUI
+from ui.common.data import Playlist
+from ui.list_menus.new_playlist import NewPlaylistUI
+from ui.list_menus.rename_playlist import RenamePlaylistUI
 
 
 class ListViewerUI(UIComponent):
@@ -14,12 +14,15 @@ class ListViewerUI(UIComponent):
         self.middle_selected = None
 
         self.anim_add_playlist = animation(-5)
+        self.anim_search = animation(-5)
         self.anim_toggle = animation(-3)
         self.menu_anims = [animation(-4) for i in range(2)]
 
         self.scroll = mili.Scroll()
-        self.scrollbar = mili.Scrollbar(self.scroll, 8, 3, 3, 0, "y")
-        self.sbar_size = self.scrollbar.short_size
+        self.scrollbar = mili.Scrollbar(
+            self.scroll, {"short_size": 7, "padding": 3, "border_dist": 3, "axis": "y"}
+        )
+        self.sbar_size = self.scrollbar.style["short_size"]
 
     def ui_top_buttons(self):
         if self.app.custom_title or self.app.modal_state == "fullscreen":
@@ -27,7 +30,7 @@ class ListViewerUI(UIComponent):
         self.ui_overlay_top_btn(
             self.anim_toggle,
             self.app.toggle_custom_title,
-            self.app.resize_image,
+            ICONS.resize,
             "left",
             tooltip="Enable custom borders",
         )
@@ -45,9 +48,9 @@ class ListViewerUI(UIComponent):
         if self.modal_state == "none" and self.app.modal_state == "none":
             handle_arrow_scroll(self.app, self.scroll, self.scrollbar)
 
-        self.scrollbar.short_size = self.mult(8)
+        self.scrollbar.style["short_size"] = self.mult(8)
         self.mili.text_element(
-            "Music Player",
+            "Media Player",
             {"size": self.mult(35)},
             None,
             {"align": "center", "blocking": None},
@@ -66,7 +69,7 @@ class ListViewerUI(UIComponent):
         ) as scroll_cont:
             if len(self.app.playlists) > 0:
                 self.scroll.update(scroll_cont)
-                self.scrollbar.short_size = self.mult(self.sbar_size)
+                self.scrollbar.style["short_size"] = self.mult(self.sbar_size)
                 self.scrollbar.update(scroll_cont)
                 self.ui_scrollbar()
                 self.mili.id_checkpoint(50)
@@ -75,7 +78,7 @@ class ListViewerUI(UIComponent):
                     self.ui_playlist(playlist)
 
                 self.mili.text_element(
-                    f"{len(self.app.playlists)} playlist{"s" if len(self.app.playlists) > 1 else ""}",
+                    f"{len(self.app.playlists)} playlist{'s' if len(self.app.playlists) > 1 else ''}",
                     {"size": self.mult(19), "color": (170,) * 3},
                     None,
                     {"offset": self.scroll.get_offset(), "blocking": None},
@@ -93,9 +96,16 @@ class ListViewerUI(UIComponent):
             self.ui_overlay_btn(
                 self.anim_add_playlist,
                 self.action_new,
-                self.app.playlistadd_image,
-                "top",
+                ICONS.playlistadd,
+                1,
                 tooltip="Create a playlist",
+            )
+            self.ui_overlay_btn(
+                self.anim_search,
+                self.app.yt_search.enter,
+                ICONS.search_video,
+                2,
+                tooltip="Search from YT Music",
             )
         elif self.modal_state == "new_playlist":
             self.new_playlist.ui()
@@ -142,7 +152,7 @@ class ListViewerUI(UIComponent):
             padsize = 0
             cover = playlist.cover
             if cover is None:
-                cover = self.app.playlist_cover
+                cover = ICONS.playlist_cover
             if cover is not None:
                 self.mili.image_element(
                     cover,
@@ -153,7 +163,7 @@ class ListViewerUI(UIComponent):
             if self.app.music is not None and self.app.music.playlist is playlist:
                 padsize = self.mult(30)
                 self.mili.image_element(
-                    self.app.playbars_image,
+                    ICONS.playbars,
                     {"cache": mili.ImageCache.get_next_cache()},
                     (0, 0, padsize, padsize),
                     {"align": "center", "blocking": False},
@@ -188,13 +198,13 @@ class ListViewerUI(UIComponent):
                     self.app.open_menu(
                         playlist,
                         (
-                            self.app.rename_image,
+                            ICONS.rename,
                             self.action_rename,
                             self.menu_anims[0],
                             "Rename playlist",
                         ),
                         (
-                            self.app.delete_image,
+                            ICONS.delete,
                             self.action_delete,
                             self.menu_anims[1],
                             "Delete playlist",

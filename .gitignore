@@ -1,8 +1,6 @@
 __pycache__/
 *.exe
 data/*
-!data/icons
-!data/ytfont.ttf
 build/
 dist/
 *.spec

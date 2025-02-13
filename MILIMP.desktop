@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=MILIMP Media Player
+Comment=A rich media player application.
+Exec=python3 MILIMP.py
+Icon=appdata/icons/playlist.png
+Terminal=false
+Type=Application
+Categories=Audio;Music;Player;
+Version=1.0
+StartupNotify=true
+X-Desktop-File-Install-Version=1.0
+X-Author=damusss

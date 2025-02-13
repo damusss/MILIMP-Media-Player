@@ -1,9 +1,11 @@
 import mili
 import pygame
 import random
+import pathlib
 from ui.common import *
-from ui.data import NotCached, AsyncVideoclipGetter
-from ui.miniplayer import MiniplayerUI
+
+from ui.common.data import NotCached, AsyncVideoclipGetter
+from ui.extra.miniplayer import MiniplayerUI
 
 
 class MusicControlsUI(UIComponent):
@@ -18,7 +20,7 @@ class MusicControlsUI(UIComponent):
         self.anims = [animation(-3) for i in range(11)]
         self.overlay_anims = [animation(-3) for i in range(5)]
         self.handle_anim = animation(-10)
-        self.slider = mili.Slider(False, True, 30, False)
+        self.slider = mili.Slider({"lock_y": True, "handle_size": 30})
         self.bigcover_cache = mili.ImageCache()
         self.black_cache = mili.ImageCache()
         self.split_screen_cache = mili.ImageCache()
@@ -36,18 +38,8 @@ class MusicControlsUI(UIComponent):
         self.track_hover_pos = None
         self.async_videoclip: AsyncVideoclipGetter = None
         self.videoclip_rects = []
-
-        self.play_image = load_icon("play")
-        self.pause_image = load_icon("pause")
-        self.skip_next_image = load_icon("skip_next")
-        self.skip_previous_image = load_icon("skip_previous")
-        self.skip5_image = load_icon("skip5")
-        self.back5_image = load_icon("back5")
-        self.fullscreen_image = load_icon("fullscreen")
-        self.dots_image = load_icon("dots")
-
-        self.minip_image = load_icon("opennew")
-        self.maxip_image = pygame.transform.flip(self.minip_image, True, True)
+        self.clean_ui = False
+        self.slider_hovered = False
 
     def ui(self):
         if self.app.split_screen:
@@ -72,19 +64,26 @@ class MusicControlsUI(UIComponent):
         self.get_videoclip_cover()
         self.get_bg_effect()
 
-        if self.app.custom_borders.resizing or self.super_fullscreen:
+        if (
+            self.app.custom_borders.resizing
+            or self.super_fullscreen
+            or (
+                self.clean_ui
+                and (self.app.split_screen or self.app.modal_state == "fullscreen")
+            )
+        ):
             self.minip.run()
             return
 
         if self.app.music_paused:
             self.app.music_play_time += self.app.delta_time * 1000
-
         self.small_cont = (
             self.main_cont is None
-            or not self.main_cont.data.absolute_rect.collidepoint(
+            or (not self.main_cont.data.absolute_rect.collidepoint(
                 pygame.mouse.get_pos()
-            )
+            ) and not self.slider_hovered)
         )
+        self.slider_hovered = False
         contheight = self.mult(100 if self.small_cont else 116)
         bigcover = False
 
@@ -121,19 +120,18 @@ class MusicControlsUI(UIComponent):
     def ui_split_screen(self):
         if self.app.music is None:
             return
-
         with self.mili.begin(
             None,
             mili.PADLESS | {"filly": True, "fillx": True, "blocking": None},
         ):
-            cover = self.app.music_cover_image
+            cover = ICONS.music_cover
             if self.app.music.cover is not None:
                 cover = self.app.music.cover
             if (
-                self.app.music_controls.music_videoclip_cover is not None
+                self.music_videoclip_cover is not None
                 and self.app.focused
             ):
-                cover = self.app.music_controls.music_videoclip_cover
+                cover = self.music_videoclip_cover
             if cover is None:
                 return
             else:
@@ -143,7 +141,7 @@ class MusicControlsUI(UIComponent):
                         0,
                         0,
                         self.app.window.size[1]
-                        - self.app.music_controls.cont_height
+                        - self.cont_height
                         - self.app.tbarh,
                     ),
                     {"fillx": True},
@@ -151,7 +149,7 @@ class MusicControlsUI(UIComponent):
                 current = (
                     self.app.focused
                     and not self.app.music_paused
-                    and self.app.music_controls.music_videoclip_cover is not None
+                    and self.music_videoclip_cover is not None
                 )
                 if current:
                     self.videoclip_rects.append((0, it.data.rect))
@@ -165,16 +163,20 @@ class MusicControlsUI(UIComponent):
                     {"cache": self.cover_cache, "ready": scaled} | mili.PADLESS,
                 )
                 if it.left_just_released:
-                    if (
-                        self.app.view_state != "playlist"
-                        or self.app.playlist_viewer.playlist
-                        is not self.app.music.playlist
-                    ):
-                        self.app.playlist_viewer.enter(self.app.music.playlist)
-                    self.app.playlist_viewer.set_scroll_to_music()
+                    if pygame.key.get_mods() & pygame.KMOD_CTRL:
+                        if (
+                            self.app.view_state != "playlist"
+                            or self.app.playlist_viewer.playlist
+                            is not self.app.music.playlist
+                        ):
+                            self.app.playlist_viewer.enter(self.app.music.playlist)
+                        self.app.playlist_viewer.set_scroll_to_music()
+                    else:
+                        self.clean_ui = False
                 elif (
                     it.just_released_button == pygame.BUTTON_MIDDLE
                     and self.music_videoclip_cover is not None
+                    and pygame.key.get_mods() & pygame.KMOD_CTRL
                 ):
                     self.app.music.cover = self.music_videoclip_cover.copy()
                     pygame.image.save(
@@ -306,7 +308,7 @@ class MusicControlsUI(UIComponent):
 
     def ui_slider(self):
         xoffset = self.app.split_w if self.app.split_screen else 0
-        self.slider.handle_size = (self.mult(48), self.mult(48))
+        self.slider.style["handle_size"] = (self.mult(48), self.mult(48))
         totalw = self.width - self.mult(15)
         pos = self.app.get_music_pos()
         percentage = (pos) / self.app.music.duration
@@ -382,8 +384,9 @@ class MusicControlsUI(UIComponent):
         hperc = (
             pygame.mouse.get_pos()[0] - sbar.data.absolute_rect.x
         ) / sbar.data.rect.w
+        music_pos = self.app.music.duration * hperc
         if pygame.key.get_mods() & pygame.KMOD_SHIFT:
-            self.track_hover_pos = self.app.music.duration * hperc
+            self.track_hover_pos = music_pos
         else:
             self.track_hover_pos = None
         hpostxt = format_music_time(self.app.music.duration * hperc, None)
@@ -412,6 +415,7 @@ class MusicControlsUI(UIComponent):
             self.slider.handle_style | {"z": 99999},
         ):
             self.slider.update_handle(handle)
+            self.slider_hovered = handle.hovered or handle.left_pressed
             self.mili.circle(
                 {
                     "color": (255,) * 3,
@@ -479,7 +483,7 @@ class MusicControlsUI(UIComponent):
         cover = self.app.music.cover
         if self.music_videoclip_cover is not None:
             cover = self.music_videoclip_cover
-        if cover is None or cover is self.app.music_cover_image:
+        if cover is None or cover is ICONS.music_cover:
             return
         self.mili.image_element(
             SURF,
@@ -520,7 +524,7 @@ class MusicControlsUI(UIComponent):
         ):
             if not self.app.split_screen:
                 self.ui_control_btn(
-                    self.dots_image,
+                    ICONS.dots,
                     self.action_dots,
                     40,
                     0,
@@ -529,14 +533,14 @@ class MusicControlsUI(UIComponent):
                 )
             if self.app.music_index > 0:
                 self.ui_control_btn(
-                    self.skip_previous_image,
+                    ICONS.skip_previous,
                     self.action_skip_previous,
                     40,
                     1,
                     tooltip="Skip to previous track",
                 )
             self.ui_control_btn(
-                self.back5_image,
+                ICONS.back5,
                 self.action_backwards_5,
                 40,
                 2,
@@ -544,14 +548,14 @@ class MusicControlsUI(UIComponent):
                 tooltip="Back 5 seconds",
             )
             self.ui_control_btn(
-                self.play_image if self.app.music_paused else self.pause_image,
+                ICONS.play if self.app.music_paused else ICONS.pause,
                 self.action_play,
                 50,
                 3,
                 tooltip="Resume music" if self.app.music_paused else "Pause music",
             )
             self.ui_control_btn(
-                self.skip5_image,
+                ICONS.skip5,
                 self.action_forward_5,
                 40,
                 4,
@@ -560,7 +564,7 @@ class MusicControlsUI(UIComponent):
             )
             if self.app.music_index < len(self.app.music.playlist.musiclist) - 1:
                 self.ui_control_btn(
-                    self.skip_next_image,
+                    ICONS.skip_next,
                     self.action_skip_next,
                     40,
                     5,
@@ -627,6 +631,8 @@ class MusicControlsUI(UIComponent):
                 self.async_videoclip.active = True
                 self.async_videoclip.time = pos
                 self.async_videoclip.framerate = self.app.target_framerate
+                if not self.app.videoclip_threaded:
+                    self.async_videoclip.update()
                 self.music_videoclip_cover = self.async_videoclip.output
             except Exception:
                 return
@@ -641,6 +647,8 @@ class MusicControlsUI(UIComponent):
         image = self.app.music.cover
         if self.music_videoclip_cover is not None:
             image = self.music_videoclip_cover
+            if self.async_videoclip.small_output is not None:
+                image = self.async_videoclip.small_output
         if image is None:
             return
         if self.app.music_paused:
@@ -659,16 +667,14 @@ class MusicControlsUI(UIComponent):
             return
         buttons = [
             (
-                self.app.close_image,
+                ICONS.close,
                 self.app.end_music,
                 self.anims[6],
                 "End music playback",
             ),
-            (self.app.reset_image, self.action_rewind, self.anims[7], "Rewind track"),
+            (ICONS.reset, self.action_rewind, self.anims[7], "Rewind track"),
             (
-                self.app.loopon_image
-                if self.app.music_loops
-                else self.app.loopoff_image,
+                ICONS.loopon if self.app.music_loops else ICONS.loopoff,
                 self.action_loop,
                 self.anims[8],
                 "15" if self.app.music_loops else "30",
@@ -677,7 +683,7 @@ class MusicControlsUI(UIComponent):
                 else "Enable track looping",
             ),
             (
-                self.fullscreen_image,
+                ICONS.fullscreen,
                 self.action_fullscreen
                 if self.app.modal_state != "fullscreen"
                 else self.action_superfullscreen,
@@ -688,7 +694,7 @@ class MusicControlsUI(UIComponent):
                 else "Maximize track",
             ),
             (
-                self.minip_image if self.minip.window is None else self.maxip_image,
+                ICONS.minip if self.minip.window is None else ICONS.maxip,
                 self.action_miniplayer,
                 self.anims[10],
                 "35",
@@ -702,27 +708,28 @@ class MusicControlsUI(UIComponent):
         )
 
     def ui_split_screen_btns(self):
+        self.mili.id_checkpoint(10000)
         self.ui_overlay_btn(
             self.overlay_anims[0],
             self.app.end_music,
-            self.app.close_image,
-            "bottom",
+            ICONS.close,
+            0,
             "End music playback",
             True,
         )
         self.ui_overlay_btn(
             self.overlay_anims[1],
             self.action_rewind,
-            self.app.reset_image,
-            "top",
+            ICONS.reset,
+            1,
             "Rewind track",
             True,
         )
         self.ui_overlay_btn(
             self.overlay_anims[2],
             self.action_loop,
-            self.app.loopon_image if self.app.music_loops else self.app.loopoff_image,
-            "supertop",
+            ICONS.loopon if self.app.music_loops else ICONS.loopoff,
+            2,
             "Disable track looping" if self.app.music_loops else "Enable track looping",
             True,
         )
@@ -731,20 +738,20 @@ class MusicControlsUI(UIComponent):
             self.action_fullscreen
             if self.app.modal_state != "fullscreen"
             else self.action_superfullscreen,
-            self.fullscreen_image,
-            "megatop",
+            ICONS.fullscreen,
+            0,
             "Enable fullscreen"
             if self.app.modal_state == "fullscreen"
             else "Maximize track",
-            True,
+            2,
         )
         self.ui_overlay_btn(
             self.overlay_anims[4],
             self.action_miniplayer,
-            self.minip_image if self.minip.window is None else self.maxip_image,
-            "ultratop",
+            ICONS.minip if self.minip.window is None else ICONS.maxip,
+            1,
             "Open miniplayer" if self.minip.window is None else "Close miniplayer",
-            True,
+            2,
         )
 
     def get_menu_pos(self, buttons):
@@ -940,10 +947,12 @@ class MusicControlsUI(UIComponent):
                 if not self.app.split_screen:
                     if self.app.menu_open and self.app.menu_data == "controls":
                         self.app.close_menu()
-                    elif not self.super_fullscreen:
+                    elif not self.super_fullscreen and not self.clean_ui:
                         self.action_dots()
             elif Keybinds.check("end_music", event):
                 self.app.end_music()
+            elif Keybinds.check("clean_controls_ui", event):
+                self.clean_ui = not self.clean_ui
         if Keybinds.check("volume_up", event):
             self.app.volume += 0.05
             if self.app.volume > 1:
