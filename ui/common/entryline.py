@@ -4,6 +4,29 @@ import functools
 from ui.common import Keybinds
 
 
+class CursorComponent(mili.typing.ComponentProtocol):
+    def __init__(self): ...
+
+    def added(self, ctx, data, style, element): ...
+
+    def draw(self, ctx, data, style, element, absolute_rect):
+        csize = style["csize"]
+        offset = style["offset"]
+        entry = data
+        if not entry.cursor_on:
+            return
+        curs = absolute_rect.h / 1.5
+        xpos = absolute_rect.x + csize - offset + 5
+        if offset != 0:
+            xpos += 5
+        pygame.draw.line(
+            ctx._canva,
+            (255,) * 3,
+            (xpos, absolute_rect.y + absolute_rect.h / 2 - curs / 2),
+            (xpos, absolute_rect.y + absolute_rect.h / 2 + curs / 2),
+        )
+
+
 class UIEntryline:
     def __init__(self, placeholder="Enter text...", target_files=True):
         self.text = ""
@@ -109,19 +132,7 @@ class UIEntryline:
         self.cursor_on = True
         self.cursor_time = pygame.time.get_ticks()
 
-    def draw_cursor(self, csize, offset, canva, element_data, rect):
-        if not self.cursor_on:
-            return
-        curs = rect.h / 1.5
-        xpos = rect.x + csize - offset + 5
-        if offset != 0:
-            xpos += 5
-        pygame.draw.line(
-            canva,
-            (255,) * 3,
-            (xpos, rect.y + rect.h / 2 - curs / 2),
-            (xpos, rect.y + rect.h / 2 + curs / 2),
-        )
+    def draw_cursor(self, csize, offset, canva, element_data, rect): ...
 
     def ui(self, mili_: mili.MILI, rect, style, mult, bgcol=20, outlinecol=40):
         with mili_.begin(
@@ -150,12 +161,15 @@ class UIEntryline:
                 {
                     "align": "center",
                     "offset": (-offsetx, 0),
-                    "post_draw_func": functools.partial(
-                        self.draw_cursor, size.x, offsetx
-                    ),
+                    # "post_draw_func": functools.partial(
+                    #    self.draw_cursor, size.x, offsetx
+                    # ),
                     "blocking": None,
                 },
             ):
+                mili_.custom_component(
+                    "cursor", self, {"csize": size.x, "offset": offsetx}
+                )
                 text = self.text
                 if len(self.text) == 1:
                     text = f"{text} "

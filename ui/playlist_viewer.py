@@ -7,8 +7,6 @@ import subprocess
 from ui.common import *
 import moviepy
 import tkinter.filedialog as filedialog
-from ui.common.data import convert_music_async
-from ui.common.data import Playlist, MusicData, PlaylistGroup
 from ui.playlist_menus.playlist_add import PlaylistAddUI
 from ui.common.entryline import UIEntryline
 from ui.playlist_menus.move_music import MoveMusicUI
@@ -16,6 +14,14 @@ from ui.playlist_menus.add_to_group import AddToGroupUI
 from ui.playlist_menus.change_cover import ChangeCoverUI
 from ui.playlist_menus.rename_music import RenameMusicUI
 from ui.playlist_menus.rename_group import RenameGroupUI
+from ui.playlist_menus.music_metadata import MusicMetadataUI
+from ui.common.data import (
+    Playlist,
+    MusicData,
+    PlaylistGroup,
+    NotCached,
+    convert_music_async,
+)
 
 
 class PlaylistViewerUI(UIComponent):
@@ -39,6 +45,7 @@ class PlaylistViewerUI(UIComponent):
         self.rename_group = RenameGroupUI(self.app)
         self.move_music = MoveMusicUI(self.app)
         self.add_to_group = AddToGroupUI(self.app)
+        self.music_metadata = MusicMetadataUI(self.app)
 
         self.scroll = mili.Scroll()
         self.scrollbar = mili.Scrollbar(
@@ -100,6 +107,8 @@ class PlaylistViewerUI(UIComponent):
                 self.rename_music.close()
             elif self.modal_state == "rename_group":
                 self.rename_group.close()
+            elif self.modal_state == "metadata":
+                self.music_metadata.close()
 
     def ui(self):
         self.ui_check()
@@ -152,6 +161,8 @@ class PlaylistViewerUI(UIComponent):
             self.rename_music.ui()
         elif self.modal_state == "rename_group":
             self.rename_group.ui()
+        elif self.modal_state == "metadata":
+            self.music_metadata.ui()
 
         if (
             big_cover
@@ -174,7 +185,7 @@ class PlaylistViewerUI(UIComponent):
                 self.scrollbar.update(scroll_cont)
 
                 self.ui_scrollbar()
-                self.mili.id_checkpoint(50)
+                self.mili.id_checkpoint(ID_OFFSET + 15000)
                 done_groups = []
                 last_group = None
                 off_screen = False
@@ -241,9 +252,10 @@ class PlaylistViewerUI(UIComponent):
                 "axis": "x",
                 "align": "center",
                 "anchor": "center",
-                "resizey": {
-                    "min": self.mult(40),
-                },
+                # "resizey": {
+                #    "min": self.mult(40),
+                # },
+                "size_clamp": {"min": (None, self.mult(40))},
                 "spacing": -self.mult(3),
             },
         ) as cont:
@@ -260,7 +272,7 @@ class PlaylistViewerUI(UIComponent):
                     if group.collapsed
                     else ICONS.up,
                     {
-                        "cache": mili.ImageCache.get_next_cache(),
+                        "cache": get_img_cache(),
                         "padx": self.mult(5)
                         if (
                             self.app.music is not None
@@ -348,7 +360,7 @@ class PlaylistViewerUI(UIComponent):
                         ALPHA,
                     ),
                     "border_radius": "5",
-                    "cache": mili.ImageCache.get_next_cache(),
+                    "cache": get_img_cache(),
                 },
             )
         else:
@@ -466,9 +478,7 @@ class PlaylistViewerUI(UIComponent):
                         "border_radius": 0,
                     }
                 )
-                self.mili.image(
-                    ICONS.backspace, {"cache": mili.ImageCache.get_next_cache()}
-                )
+                self.mili.image(ICONS.backspace, {"cache": get_img_cache()})
                 if self.app.can_interact():
                     if it.left_just_released:
                         self.search_entryline.text = ""
@@ -571,7 +581,7 @@ class PlaylistViewerUI(UIComponent):
                             self.mili.image(
                                 cover,
                                 {
-                                    "cache": mili.ImageCache.get_next_cache(),
+                                    "cache": get_img_cache(),
                                     "pad": self.mult(3),
                                     "ready": scaled,
                                 },
@@ -584,7 +594,7 @@ class PlaylistViewerUI(UIComponent):
                             self.mili.image(
                                 ICONS.playbars,
                                 {
-                                    "cache": mili.ImageCache.get_next_cache(),
+                                    "cache": get_img_cache(),
                                     "pad": "30",
                                 },
                             )
@@ -610,7 +620,8 @@ class PlaylistViewerUI(UIComponent):
                 "axis": "x",
                 "align": "center",
                 "anchor": "first",
-                "resizey": {"min": self.mult(80)},
+                # "resizey": {"min": self.mult(80)},
+                "size_clamp": {"min": (None, self.mult(80))},
             },
         ) as cont:
             if cont.data.absolute_rect.colliderect(((0, 0), self.app.split_size)):
@@ -626,16 +637,24 @@ class PlaylistViewerUI(UIComponent):
                     if music is self.app.music:
                         self.mili.image(
                             ICONS.playbars,
-                            {"cache": mili.ImageCache.get_next_cache()},
+                            {"cache": get_img_cache()},
                         )
                 cover = music.cover_or(ICONS.music_cover)
                 is_current = False
                 if cover is None:
                     cover = ICONS.music_cover
+                use_videoclip = (
+                    music is self.app.music
+                    and music.isvideo
+                    and self.app.music_controls.async_videoclip is not None
+                    and not self.app.music_controls.async_videoclip.is_large_media
+                )
                 if (
                     music is self.app.music
                     and self.app.music_controls.music_videoclip_cover is not None
                     and self.app.focused
+                    and self.app.music
+                    and use_videoclip
                 ):
                     cover = self.app.music_controls.music_videoclip_cover
                     is_current = True
@@ -657,7 +676,7 @@ class PlaylistViewerUI(UIComponent):
                                 scaled = True
                     self.mili.image(
                         cover,
-                        {"cache": mili.ImageCache.get_next_cache(), "ready": scaled},
+                        {"cache": get_img_cache(), "ready": scaled},
                     )
                 self.mili.text_element(
                     parse_music_stem(self.app, music.realstem),
@@ -713,7 +732,7 @@ class PlaylistViewerUI(UIComponent):
                         ALPHA,
                     ),
                     "border_radius": 0,
-                    "cache": mili.ImageCache.get_next_cache(),
+                    "cache": get_img_cache(),
                 },
             )
 
@@ -780,22 +799,28 @@ class PlaylistViewerUI(UIComponent):
                     "Convert to MP3",
                 )
             )
-        buttons.append(
-            (
-                ICONS.change_cover,
-                self.action_change_cover,
-                self.menu_anims[6],
-                "30",
-                "Change track cover",
-            )
-        )
-        buttons.append(
-            (
-                ICONS.delete,
-                self.action_delete,
-                self.menu_anims[7],
-                "Delete track",
-            ),
+        buttons.extend(
+            [
+                (
+                    ICONS.change_cover,
+                    self.action_change_cover,
+                    self.menu_anims[6],
+                    "30",
+                    "Change track cover",
+                ),
+                (
+                    ICONS.infoon,
+                    self.action_metadata,
+                    self.menu_anims[7],
+                    "View track metadata",
+                ),
+                (
+                    ICONS.delete,
+                    self.action_delete,
+                    self.menu_anims[8],
+                    "Delete track",
+                ),
+            ]
         )
         self.app.open_menu(music, *buttons)
 
@@ -830,6 +855,13 @@ class PlaylistViewerUI(UIComponent):
     def action_add_to_group(self):
         self.modal_state = "add_group"
         self.add_to_group.music = self.app.menu_data
+        self.app.close_menu()
+
+    def action_metadata(self):
+        self.modal_state = "metadata"
+        self.music_metadata.music = self.app.menu_data
+        if self.music_metadata.music.duration is NotCached:
+            self.music_metadata.music.cache_duration()
         self.app.close_menu()
 
     def action_remove_from_group(self):
@@ -888,7 +920,7 @@ class PlaylistViewerUI(UIComponent):
         music.playlist.musictable.pop(music.realpath)
         music.playlist.musictable[music.audiopath] = music
         thread = threading.Thread(
-            target=convert_music_async, args=(music, audiofile, new_path)
+            target=convert_music_async, args=(music, audiofile, new_path), daemon=True
         )
         thread.start()
 
@@ -908,7 +940,7 @@ class PlaylistViewerUI(UIComponent):
     def back(self):
         self.app.change_state("list")
         self.scroll.set_scroll(0, 0)
-        self.scrollbar.scroll_moved()
+        # self.scrollbar.scroll_moved()
 
     def action_rename(self):
         self.modal_state = "rename"
@@ -1018,7 +1050,7 @@ class PlaylistViewerUI(UIComponent):
             self.app.music.group.collapsed = False
         if increase:
             self.scroll.scroll(0, (self.mult(80) + 6) * incdir)
-            self.scrollbar.scroll_moved()
+            # self.scrollbar.scroll_moved()
             return
         remove_amount = 0
         group_amount = 0
@@ -1044,7 +1076,7 @@ class PlaylistViewerUI(UIComponent):
                 + (line_amount * (self.mult(7) + 3))
             ),
         )
-        self.scrollbar.scroll_moved()
+        # self.scrollbar.scroll_moved()
 
     def reorder_musics_groups(self, event):
         mult = 1
@@ -1149,6 +1181,8 @@ class PlaylistViewerUI(UIComponent):
             modal_exit = self.rename_music.event(event)
         elif self.modal_state == "rename_group":
             modal_exit = self.rename_group.event(event)
+        elif self.modal_state == "metadata":
+            modal_exit = self.music_metadata.event(event)
         if (
             self.search_active
             and self.app.can_interact()
@@ -1168,24 +1202,24 @@ class PlaylistViewerUI(UIComponent):
             else:
                 handle_wheel_scroll(event, self.app, self.scroll, self.scrollbar)
 
-        self.shortcuts_event(event, modal_exit)
-
-    def shortcuts_event(self, event, modal_exit):
         if self.app.listening_key or not self.app.can_interact():
             return
         if event.type == pygame.KEYDOWN:
-            if not modal_exit and event.key == pygame.K_ESCAPE:
-                if self.search_active:
-                    self.stop_searching()
-                else:
-                    self.back()
-            elif Keybinds.check("toggle_search", event):
-                if self.search_active:
-                    self.stop_searching()
-                else:
-                    self.action_search()
-            elif Keybinds.check("change_cover", event):
-                if self.modal_state == "cover":
-                    self.change_cover.close()
-                else:
-                    self.action_cover()
+            self.shortcuts_event(event, modal_exit)
+
+    def shortcuts_event(self, event, modal_exit):
+        if not modal_exit and event.key == pygame.K_ESCAPE:
+            if self.search_active:
+                self.stop_searching()
+            else:
+                self.back()
+        elif Keybinds.check("toggle_search", event):
+            if self.search_active:
+                self.stop_searching()
+            else:
+                self.action_search()
+        elif Keybinds.check("change_cover", event):
+            if self.modal_state == "cover":
+                self.change_cover.close()
+            else:
+                self.action_cover()

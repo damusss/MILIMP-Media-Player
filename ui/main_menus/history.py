@@ -14,7 +14,7 @@ class HistoryUI(UIComponent):
         self.sbar_size = self.scrollbar.style["short_size"]
 
     def ui(self):
-        self.mili.id_checkpoint(3000 + 600)
+        self.mili.id_checkpoint(ID_OFFSET + 110000)
         handle_arrow_scroll(self.app, self.scroll, self.scrollbar)
 
         with self.mili.begin(
@@ -195,7 +195,7 @@ class HistoryUI(UIComponent):
             if cover is not None:
                 self.mili.image_element(
                     cover,
-                    {"cache": mili.ImageCache.get_next_cache()},
+                    {"cache": get_img_cache()},
                     (0, 0, self.mult(50), self.mult(50)),
                     {"align": "center", "blocking": False},
                 )

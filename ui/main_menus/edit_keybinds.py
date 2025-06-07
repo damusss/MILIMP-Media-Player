@@ -18,7 +18,7 @@ class EditKeybindsUI(UIComponent):
         self.listening_ctrl = False
 
     def ui(self):
-        self.mili.id_checkpoint(3000 + 500)
+        self.mili.id_checkpoint(ID_OFFSET + 100000)
         handle_arrow_scroll(self.app, self.scroll, self.scrollbar)
 
         with self.mili.begin(

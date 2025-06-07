@@ -6,6 +6,7 @@ import webbrowser
 from ui.common import *
 from ui.yt_menus.yt_embed import YTEmbedUI
 from ui.yt_menus.yt_download import YTDownloadUI
+from ui.yt_menus.yt_playlist import YTPlaylistUI
 from ui.common.data import (
     YTVideoResult,
     AsyncYTEmbed,
@@ -36,6 +37,7 @@ class YTSearchUI(UIComponent):
         self.search_more_anim = animation(-5)
         self.embed_ui = YTEmbedUI(self.app)
         self.download_ui = YTDownloadUI(self.app)
+        self.playlist_ui = YTPlaylistUI(self.app)
         self.embed = None
         self.scroll = mili.Scroll()
         self.scrollbar = mili.Scrollbar(
@@ -91,8 +93,12 @@ class YTSearchUI(UIComponent):
         self.searching_more = False
         self.downloading_thumbs = set()
         self.downloading_channels = set()
+        self.downloading_playlist = None
         self.more_options = False
         self.video_i = 0
+
+    def is_playlist(self):
+        return "playlist?list=" in self.search_entryline.text
 
     def ui_check(self):
         if self.app.modal_state != "none" and self.modal_state != "none":
@@ -100,6 +106,8 @@ class YTSearchUI(UIComponent):
                 self.embed_ui.close()
             if self.modal_state == "download":
                 self.download_ui.close()
+            if self.modal_state == "playlist":
+                self.playlist_ui.close()
             self.modal_state = "none"
 
     def ui_top_buttons(self):
@@ -121,8 +129,11 @@ class YTSearchUI(UIComponent):
             self.embed_ui.ui()
         elif self.modal_state == "download":
             self.download_ui.ui()
+        elif self.modal_state == "playlist":
+            self.playlist_ui.ui()
 
     def ui_title_area(self):
+        self.mili.id_checkpoint(ID_OFFSET + 30000)
         self.mili.text_element(
             "YT Music Search",
             {
@@ -133,8 +144,10 @@ class YTSearchUI(UIComponent):
             {"align": "center", "blocking": None},
         )
         self.ui_search_row()
+        self.mili.id_checkpoint(ID_OFFSET + 35000)
         if self.more_options:
             self.ui_dropmenus_row()
+        self.mili.id_checkpoint(ID_OFFSET + 40000)
         self.mili.line_element(
             [("-49.5", 0), ("49.5", 0)],
             {"size": 1, "color": (100,) * 3},
@@ -186,7 +199,7 @@ class YTSearchUI(UIComponent):
                     )
                     self.mili.image(
                         image,
-                        {"cache": mili.ImageCache.get_next_cache()},
+                        {"cache": get_img_cache()},
                     )
                     if self.app.can_interact():
                         if it.left_just_released:
@@ -217,7 +230,7 @@ class YTSearchUI(UIComponent):
                 self.ui_dropmenu(dropmenu, wordid, prefix, i)
 
     def ui_dropmenu(self, dm: mili.DropMenu, wordid, prefix, i):
-        self.mili.id_checkpoint(200 + i * 200)
+        self.mili.id_jump(1000)
         size = self.mult(25)
         with self.mili.begin(
             (0, 0, 0, size),
@@ -254,7 +267,7 @@ class YTSearchUI(UIComponent):
             )
             self.mili.image_element(
                 ICONS.up if dm.shown else ICONS.down,
-                {"cache": mili.ImageCache.get_next_cache()},
+                {"cache": get_img_cache()},
                 (0, 0, size, size),
                 {"blocking": False},
             )
@@ -320,7 +333,6 @@ class YTSearchUI(UIComponent):
                     self.app.cursor_hover = True
 
     def ui_container(self):
-        self.mili.id_checkpoint(850)
         with self.mili.begin(
             (0, 0, self.app.split_w, 0),
             {"filly": True},
@@ -331,16 +343,22 @@ class YTSearchUI(UIComponent):
                 self.scrollbar.style["short_size"] = self.mult(self.sbar_size)
                 self.scrollbar.update(scroll_cont)
 
-                self.mili.id_checkpoint(900)
+                self.mili.id_jump(50)
                 self.ui_scrollbar()
-                self.mili.id_checkpoint(1000)
+                self.mili.id_jump(50)
 
                 if self.downloading > 0:
                     self.ui_searching("Downloading...")
+                if self.downloading_playlist:
+                    self.ui_searching(
+                        f"Downloading playlist '{self.downloading_playlist}'..."
+                    )
                 if self.searching and not self.searching_more:
                     self.ui_searching()
                 if self.ui_info_str():
                     return
+                if self.is_playlist():
+                    self.ui_playlist()
                 for i, video in enumerate(results):
                     self.ui_video(video, i)
                 if self.searching and self.searching_more:
@@ -365,6 +383,43 @@ class YTSearchUI(UIComponent):
                         )
             else:
                 self.ui_info_str()
+
+    def ui_playlist(self):
+        with self.mili.begin(
+            None,
+            {
+                "fillx": True,
+                "resizey": True,
+                "offset": self.scroll.get_offset(),
+                "axis": "x",
+            },
+        ):
+            self.mili.text_element(
+                'The query was interpreted as the link to a <color fg="red">Playlist.</color>',
+                {"size": self.mult(20), "align": "left", "rich": True, "cache": "auto"},
+                None,
+            )
+            with self.mili.begin(None, mili.RESIZE | mili.X | mili.PADLESS) as btn:
+                self.mili.image_element(
+                    ICONS.download,
+                    {"alpha": cond(self.app, btn, 180, 255, 150)},
+                    (0, 0, self.mult(30), self.mult(30)),
+                    {"blocking": False},
+                )
+                self.mili.text_element(
+                    "Download All Videos",
+                    {
+                        "size": self.mult(20),
+                        "underline": btn.hovered,
+                        "color": "red",
+                    },
+                    None,
+                    {"blocking": False},
+                )
+                if btn.hovered:
+                    self.app.cursor_hover = True
+                if self.app.can_interact() and btn.left_clicked:
+                    self.action_download_playlist()
 
     def ui_info_str(self):
         string = ""
@@ -446,7 +501,7 @@ class YTSearchUI(UIComponent):
                 "axis": "x",
                 "align": "center",
                 "anchor": "first",
-                "resizey": {"min": H},
+                "size_clamp": {"min": (None, H)},
             },
         ) as cont:
             if cont.data.absolute_rect.colliderect(((0, 0), self.app.split_size)):
@@ -552,7 +607,9 @@ class YTSearchUI(UIComponent):
             image = ICONS.account
             if video.channel_id not in self.downloading_channels:
                 self.start_downloading_channel(video)
-        with self.mili.begin(None, mili.RESIZE | mili.X | {"pady": 0}) as hit:
+        with self.mili.begin(
+            (0, 0, 0, imgsize), mili.X | {"pady": 0, "resizex": True}
+        ) as hit:
             if hit.hovered or hit.left_pressed:
                 self.mili.rect(
                     {
@@ -564,6 +621,7 @@ class YTSearchUI(UIComponent):
                 image,
                 {
                     "cache": video.channel_cache,
+                    "fill": True,
                     "alpha": cond(self.app, hit, 180, 255, 150),
                 },
                 (0, 0, imgsize, imgsize),
@@ -600,7 +658,7 @@ class YTSearchUI(UIComponent):
                         ALPHA,
                     ),
                     "border_radius": 0,
-                    "cache": mili.ImageCache.get_next_cache(),
+                    "cache": get_img_cache(),
                 },
             )
 
@@ -672,12 +730,17 @@ class YTSearchUI(UIComponent):
             ),
         )
 
+    def action_download_playlist(self):
+        self.modal_state = "playlist"
+        self.playlist_ui.enter()
+        self.app.close_menu()
+
     def action_copy_url(self):
         pygame.scrap.put_text(self.app.menu_data.url)
 
     def action_download_thumb(self):
         thread = threading.Thread(
-            target=save_thumbnail_async, args=(self.app.menu_data,)
+            target=save_thumbnail_async, args=(self.app.menu_data,), daemon=True
         )
         thread.start()
         self.app.close_menu()
@@ -763,20 +826,22 @@ class YTSearchUI(UIComponent):
             if self.search_method == "yt-dlp"
             else search_videos_fast_async
         )
-        thread = threading.Thread(target=func, args=(self, query))
+        thread = threading.Thread(target=func, args=(self, query), daemon=True)
         thread.start()
 
     def start_downloading_thumb(self, video: YTVideoResult):
         self.downloading_thumbs.add(video.thumbnail)
         thread = threading.Thread(
-            target=download_thumbail_async, args=(video, self, ICONS.error)
+            target=download_thumbail_async, args=(video, self, ICONS.error), daemon=True
         )
         thread.start()
 
     def start_downloading_channel(self, video: YTVideoResult):
         self.downloading_channels.add(video.channel_id)
         thread = threading.Thread(
-            target=download_channel_async, args=(video, self, ICONS.account)
+            target=download_channel_async,
+            args=(video, self, ICONS.account),
+            daemon=True,
         )
         thread.start()
 
@@ -791,13 +856,15 @@ class YTSearchUI(UIComponent):
             return True
         dep = shutil.which("yt-dlp")
         if dep is None:
-            pygame.display.message_box(
+            btn = pygame.display.message_box(
                 "Missing Dependency 'yt-dlp'",
                 "Searching with mode 'yt-dlp' relies on the yt-dlp dependency that must be downloaded and possibly added to PATH. You can download the latest EXE from 'https://github.com/yt-dlp/yt-dlp/releases'.",
                 "error",
                 None,
-                ("Understood",),
+                ("Understood", "Open Link"),
             )
+            if btn == 1:
+                webbrowser.open("https://github.com/yt-dlp/yt-dlp/releases")
             return False
         else:
             self.found_dependency = True
@@ -815,7 +882,7 @@ class YTSearchUI(UIComponent):
     def back(self):
         self.app.change_state("list")
         self.scroll.set_scroll(0, 0)
-        self.scrollbar.scroll_moved()
+        # self.scrollbar.scroll_moved()
 
     def event(self, event):
         if (
@@ -838,6 +905,8 @@ class YTSearchUI(UIComponent):
             doexit = self.embed_ui.event(event)
         elif self.modal_state == "download":
             doexit = self.download_ui.event(event)
+        elif self.modal_state == "playlist":
+            doexit = self.playlist_ui.event(event)
         if doexit:
             return
         if event.type == pygame.KEYDOWN:

@@ -10,7 +10,7 @@ class MusicFullscreenUI(UIComponent):
         self.music_cache = mili.ImageCache()
 
     def ui(self):
-        self.mili.id_checkpoint(3000 + 100)
+        self.mili.id_checkpoint(ID_OFFSET + 120000)
         if self.app.music is None:
             self.close()
             return

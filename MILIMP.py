@@ -11,8 +11,10 @@ import faulthandler
 pygame.mixer.pre_init(buffer=2048)
 
 from ui.common import *
+from ui.common.entryline import CursorComponent
 from ui.main_menus.history import HistoryUI
 from ui.main_menus.settings import SettingsUI
+from ui.main_menus.state_info import StateInfoUI
 from ui.yt_search import YTSearchUI
 from ui.list_viewer import ListViewerUI
 from ui.main_menus.edit_keybinds import EditKeybindsUI
@@ -63,7 +65,7 @@ class MILIMP(mili.GenericApp):
         self.window.set_icon(ICONS.playlist_cover)
 
     def init_health_check(self):
-        thread = threading.Thread(target=health_check)
+        thread = threading.Thread(target=health_check, daemon=True)
         thread.start()
 
     def init_pygame(self):
@@ -79,11 +81,11 @@ class MILIMP(mili.GenericApp):
         self.window.minimum_size = WIN_MIN_SIZE
         pygame.key.set_repeat(500, 30)
         print(f"MILI {mili.VERSION_STR}")
-        if mili.VERSION < (1, 0, 4) or pygame.vernum < (2, 5, 2):
+        if mili.VERSION < (1, 0, 6) or pygame.vernum < (2, 5, 2):
             pygame.display.message_box(
                 "Outdated dependencies",
                 "The core dependencies of the media player are outdated, please update them to the latest version. "
-                f"pygame-ce: needed >=2.5.2, found {pygame.ver}. MILI: needed >=1.0.4, found {mili.VERSION_STR}. "
+                f"pygame-ce: needed >=2.5.2, found {pygame.ver}. MILI: needed >=1.0.6, found {mili.VERSION_STR}. "
                 "The application will now quit.",
                 "error",
                 None,
@@ -104,6 +106,7 @@ class MILIMP(mili.GenericApp):
         self.keybinds = Keybinds(self)
         self.edit_keybinds = EditKeybindsUI(self)
         self.music_fullscreen = MusicFullscreenUI(self)
+        self.state_info = StateInfoUI(self)
         self.prefabs = UIComponent(self)
         # settings
         self.user_framerate = 60
@@ -115,6 +118,9 @@ class MILIMP(mili.GenericApp):
         self.maximized = False
         self.strip_youtube_id = False
         self.taskbar_height = 0
+        self.universal_font = False
+        self.videoclip_on = True
+        self.videoclip_threaded = True
         # status
         self.start_style = mili.PADLESS | {"spacing": 0}
         self.start_time = time.time()
@@ -127,7 +133,7 @@ class MILIMP(mili.GenericApp):
         self.ui_mult = 1
         self.input_stolen = False
         self.listening_key = False
-        self.last_save = SAVE_COOLDOWN
+        self.last_save = 0
         self.stolen_cursor = False
         self.cursor_hover = False
         self.tooltip_hover_time = 0
@@ -136,6 +142,7 @@ class MILIMP(mili.GenericApp):
         self.split_w = self.window.size[0]
         self.split_size = self.window.size
         self.startup_covers_toload: list[tuple[MusicData, str]] = []
+        self.remove_videoclip_threading = False
         # bg effect/mili
         self.bg_effect_image = None
         self.bg_black_image = None
@@ -211,16 +218,12 @@ class MILIMP(mili.GenericApp):
 
     def init_mili_settings(self):
         self.mili.default_styles(
-            text={
-                "sysfont": False,
-                "name": "appdata/ytfont.ttf",
-                "growx": True,
-                "growy": True,
-            },
             line={"color": (255,) * 3},
             circle={"antialias": True},
             image={"smoothscale": True},
         )
+        self.apply_font()
+        mili.register_custom_component("cursor", CursorComponent())
 
     def init_load_settings(self):
         custom_title = True
@@ -245,6 +248,8 @@ class MILIMP(mili.GenericApp):
                 "strip_youtube_id": False,
                 "taskbar_height": 0,
                 "videoclip_threaded": True,
+                "videoclip_on": True,
+                "universal_font": False,
                 "yt_search": "",
                 "yt_fetch_amount": 7,
                 "yt_search_method": "yt-dlp",
@@ -267,10 +272,12 @@ class MILIMP(mili.GenericApp):
             self.strip_youtube_id = data.get("strip_youtube_id", False)
             self.taskbar_height = data.get("taskbar_height", 0)
             self.videoclip_threaded = data.get("videoclip_threaded", True)
+            self.videoclip_on = data.get("videoclip_on", True)
             minip = self.music_controls.minip
             minip.last_size, minip.last_pos, minip.last_borderless = data.get(
                 "miniplayer", minip_data
             )
+            self.universal_font = data.get("universal_font", False)
             self.yt_search.search_entryline.set_text(data.get("yt_search", ""))
             self.yt_search.fetch_amount = data.get("yt_fetch_amount", 7)
             self.yt_search.search_method = data.get("yt_search_method", "yt-dlp")
@@ -339,6 +346,20 @@ class MILIMP(mili.GenericApp):
                         file.write("")
         except Exception:
             pass
+
+    def apply_font(self):
+        self.mili.default_style(
+            "text",
+            {
+                "sysfont": False,
+                "name": "appdata/universal.ttf"
+                if self.universal_font
+                else "appdata/ytfont.ttf",
+                "growx": True,
+                "growy": True,
+                "cache": "auto",
+            },
+        )
 
     @property
     def focused(self):
@@ -424,7 +445,7 @@ class MILIMP(mili.GenericApp):
 
         if self.music.isvideo:
             self.music_controls.async_videoclip = AsyncVideoclipGetter(
-                str(self.music.realpath)
+                str(self.music.realpath), self
             )
             if self.videoclip_threaded:
                 thread = threading.Thread(
@@ -472,6 +493,7 @@ class MILIMP(mili.GenericApp):
         self.music_controls.clean_ui = False
 
     def save(self):
+        self.last_save = pygame.time.get_ticks()
         if self.music is not None:
             self.add_to_history()
         playlist_data = [
@@ -506,6 +528,8 @@ class MILIMP(mili.GenericApp):
                 "strip_youtube_id": self.strip_youtube_id,
                 "taskbar_height": self.taskbar_height,
                 "videoclip_threaded": self.videoclip_threaded,
+                "videoclip_on": self.videoclip_on,
+                "universal_font": self.universal_font,
                 "yt_search": self.yt_search.search_entryline.text,
                 "yt_fetch_amount": self.yt_search.fetch_amount,
                 "yt_search_method": self.yt_search.search_method,
@@ -540,7 +564,6 @@ class MILIMP(mili.GenericApp):
     def update(self):
         self.window.title = f"MILIMP (FPS: {self.clock.get_fps():.0f})"
         if pygame.time.get_ticks() - self.last_save >= SAVE_COOLDOWN:
-            self.last_save = pygame.time.get_ticks()
             self.save()
 
         if self.startup_covers_toload is not None:
@@ -622,6 +645,10 @@ class MILIMP(mili.GenericApp):
         if self.music_controls.async_videoclip is not None:
             self.music_controls.async_videoclip.active = False
 
+        if self.music is not None and self.remove_videoclip_threading:
+            self.remove_videoclip_threading = False
+            self.settings.action_thread()
+
     def ui(self):
         self.mili.rect({"color": (BG_CV,) * 3, "border_radius": 0})
         if self.custom_title:
@@ -677,12 +704,14 @@ class MILIMP(mili.GenericApp):
                 self.history.ui()
             elif self.modal_state == "keybinds":
                 self.edit_keybinds.ui()
+            elif self.modal_state == "state_info":
+                self.state_info.ui()
 
             if not self.split_screen:
-                self.mili.id_checkpoint(5000)
+                self.mili.id_checkpoint(ID_POST_OFFSET)
                 self.music_controls.ui()
 
-            self.mili.id_checkpoint(5100)
+            self.mili.id_checkpoint(ID_POST_OFFSET + 10000)
             if (
                 self.playlist_viewer.modal_state == "none"
                 and self.list_viewer.modal_state == "none"
@@ -708,9 +737,9 @@ class MILIMP(mili.GenericApp):
                 }
                 | mili.PADLESS,
             ):
-                self.mili.id_checkpoint(4950)
+                self.mili.id_checkpoint(ID_POST_OFFSET + 20000)
                 self.music_controls.ui_split_screen()
-                self.mili.id_checkpoint(5000)
+                self.mili.id_checkpoint(ID_POST_OFFSET + 30000)
                 self.music_controls.ui()
             self.mili.end()
 
@@ -728,10 +757,10 @@ class MILIMP(mili.GenericApp):
 
         if self.modal_state != "none" and self.menu_data != "controls":
             self.close_menu()
-        self.mili.id_checkpoint(5200)
+        self.mili.id_checkpoint(ID_POST_OFFSET + 50000)
         if self.menu_open:
             self.ui_menu()
-        self.mili.id_checkpoint(5500)
+        self.mili.id_checkpoint(ID_POST_OFFSET + 60000)
 
         if not self.cursor_hover:
             self.tooltip_data = None
@@ -924,11 +953,7 @@ class MILIMP(mili.GenericApp):
             if do_drag:
                 self.custom_borders.dragging = True
                 pygame.mouse.set_pos((self.window.size[0] / 2, 15))
-                self.custom_borders._press_rel = pygame.mouse.get_pos()
-                self.custom_borders._press_global = (
-                    pygame.Vector2(pygame.mouse.get_pos()) + self.window.position
-                )
-                self.custom_borders._start_val = pygame.Vector2(self.window.position)
+                self.custom_borders.mouse_changed()
         else:
             self.before_maximize_data = self.window.position, self.window.size
             self.window.position = (0, 0)
@@ -1010,6 +1035,9 @@ class MILIMP(mili.GenericApp):
                 return
         elif self.modal_state == "fullscreen":
             if self.music_fullscreen.event(event):
+                return
+        elif self.modal_state == "state_info":
+            if self.state_info.event(event):
                 return
         if self.view_state == "list":
             self.list_viewer.event(event)

@@ -15,7 +15,7 @@ class RenameGroupUI(UIComponent):
         self.group: PlaylistGroup = None
 
     def ui(self):
-        self.mili.id_checkpoint(3000 + 250)
+        self.mili.id_checkpoint(ID_OFFSET + 170000)
         with self.mili.begin(
             ((0, 0), self.app.split_size),
             {"ignore_grid": True, "blocking": True} | mili.CENTER,

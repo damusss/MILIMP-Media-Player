@@ -13,7 +13,7 @@ class YTEmbedUI(UIComponent):
         if self.app.yt_search.embed is None:
             self.close()
             return
-        self.mili.id_checkpoint(50000)
+        self.mili.id_checkpoint(ID_OFFSET + 200000)
         with self.mili.begin(
             ((0, 0), self.app.split_size),
             {"ignore_grid": True, "blocking": False} | mili.PADLESS,

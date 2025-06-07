@@ -77,14 +77,12 @@ class MusicControlsUI(UIComponent):
 
         if self.app.music_paused:
             self.app.music_play_time += self.app.delta_time * 1000
-        self.small_cont = (
-            self.main_cont is None
-            or (not self.main_cont.data.absolute_rect.collidepoint(
-                pygame.mouse.get_pos()
-            ) and not self.slider_hovered)
+        self.small_cont = self.main_cont is None or (
+            not self.main_cont.data.absolute_rect.collidepoint(pygame.mouse.get_pos())
+            and not self.slider_hovered
         )
         self.slider_hovered = False
-        contheight = self.mult(100 if self.small_cont else 116)
+        contheight = self.mult(116)  # 100 if self.small_cont else 116
         bigcover = False
 
         self.cont_height = contheight
@@ -127,10 +125,7 @@ class MusicControlsUI(UIComponent):
             cover = ICONS.music_cover
             if self.app.music.cover is not None:
                 cover = self.app.music.cover
-            if (
-                self.music_videoclip_cover is not None
-                and self.app.focused
-            ):
+            if self.music_videoclip_cover is not None and self.app.focused:
                 cover = self.music_videoclip_cover
             if cover is None:
                 return
@@ -140,9 +135,7 @@ class MusicControlsUI(UIComponent):
                         0,
                         0,
                         0,
-                        self.app.window.size[1]
-                        - self.cont_height
-                        - self.app.tbarh,
+                        self.app.window.size[1] - self.cont_height - self.app.tbarh,
                     ),
                     {"fillx": True},
                 )
@@ -595,7 +588,7 @@ class MusicControlsUI(UIComponent):
             self.mili.image(
                 image,
                 {
-                    "cache": mili.ImageCache.get_next_cache(),
+                    "cache": get_img_cache(),
                     "pad": self.mult(1) + anim.value,
                 },
             )
@@ -708,7 +701,7 @@ class MusicControlsUI(UIComponent):
         )
 
     def ui_split_screen_btns(self):
-        self.mili.id_checkpoint(10000)
+        self.mili.id_jump(10000)
         self.ui_overlay_btn(
             self.overlay_anims[0],
             self.app.end_music,
@@ -803,8 +796,11 @@ class MusicControlsUI(UIComponent):
         pos = self.app.get_music_pos()
         new_pos = pygame.math.clamp(pos + amount, 0, self.app.music.duration)
         if new_pos >= self.app.music.duration:
-            self.action_skip_next()
-            return
+            if self.app.music_loops:
+                new_pos = 0
+            else:
+                self.action_skip_next()
+                return
         self.slider.valuex = new_pos / self.app.music.duration
         self.app.set_music_pos(new_pos)
         self.get_videoclip_cover(new_pos)

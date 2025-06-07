@@ -1,6 +1,7 @@
 import mili
 import pygame
 import threading
+import webbrowser
 from ui.common.data import (
     YTVideoResult,
     YTVideoFormat,
@@ -170,7 +171,7 @@ class YTDownloadUI(UIComponent):
         )
 
     def ui_formats(self, perc):
-        self.mili.id_checkpoint(20000)
+        self.mili.id_checkpoint(ID_OFFSET + 190000)
         with self.mili.begin(
             None,
             {"fillx": True, "filly": True},
@@ -198,7 +199,7 @@ class YTDownloadUI(UIComponent):
                             ICONS.video_track
                             if fmt.type in ["video", "full"]
                             else ICONS.audio_track,
-                            {"cache": mili.ImageCache.get_next_cache()},
+                            {"cache": get_img_cache()},
                             (0, 0, size, size),
                         )
                         title = {
@@ -216,7 +217,7 @@ class YTDownloadUI(UIComponent):
                             ICONS.audio_track
                             if fmt.type in ["audio", "full"]
                             else ICONS.video_track,
-                            {"cache": mili.ImageCache.get_next_cache()},
+                            {"cache": get_img_cache()},
                             (0, 0, size, size),
                         )
                     self.ui_column_info()
@@ -293,13 +294,13 @@ class YTDownloadUI(UIComponent):
                             if fmt.type in ["video", "full"]:
                                 self.mili.image_element(
                                     ICONS.video_track,
-                                    {"cache": mili.ImageCache.get_next_cache()},
+                                    {"cache": get_img_cache()},
                                     (0, 0, size, size),
                                 )
                             if fmt.type in ["audio", "full"]:
                                 self.mili.image_element(
                                     ICONS.audio_track,
-                                    {"cache": mili.ImageCache.get_next_cache()},
+                                    {"cache": get_img_cache()},
                                     (0, 0, size, size),
                                 )
                             if fmt.type == "full":
@@ -375,7 +376,9 @@ class YTDownloadUI(UIComponent):
         else:
             self.getting_formats = True
             thread = threading.Thread(
-                target=get_yt_formats_async, args=(self.app.yt_search, self, self.video)
+                target=get_yt_formats_async,
+                args=(self.app.yt_search, self, self.video),
+                daemon=True,
             )
             thread.start()
 
@@ -405,7 +408,7 @@ class YTDownloadUI(UIComponent):
             func = download_yt_default_async if fmt.default else download_yt_async
             self.app.yt_search.downloading += 1
             thread = threading.Thread(
-                target=func, args=(self.app.yt_search, self.video, fmt)
+                target=func, args=(self.app.yt_search, self.video, fmt), daemon=True
             )
             thread.start()
         self.close()
@@ -416,18 +419,21 @@ class YTDownloadUI(UIComponent):
         if self.ffmpeg_version is None:
             return
         if int(self.ffmpeg_version) < 7:
-            pygame.display.message_box(
+            btn = pygame.display.message_box(
                 "Outdated Dependency 'ffmpeg'",
                 "Merging audio and video tracks relies on an ffmpeg version not older than 7.0. You can download the latest EXE from 'https://www.ffmpeg.org/download.html'.",
                 "error",
                 None,
-                ("Understood",),
+                ("Understood", "Open Link"),
             )
+            if btn == 1:
+                webbrowser.open("https://www.ffmpeg.org/download.html")
             return
         self.app.yt_search.downloading += 1
         thread = threading.Thread(
             target=merge_yt_async,
             args=(self.app.yt_search, self.video, self.chosen[0], self.chosen[1]),
+            daemon=True,
         )
         thread.start()
         self.close()

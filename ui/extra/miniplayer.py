@@ -24,21 +24,18 @@ class MiniplayerUI:
         self.last_borderless = True
         self.prev_mpos = pygame.Vector2()
         self.static_time = None
+        self.desktop = pygame.display.get_desktop_sizes()[0]
         self.custom_borders = mili.CustomWindowBorders(
             self.window,
-            RESIZE_SIZE,
-            RESIZE_SIZE * 2,
+            2,
+            4,
             0,
             True,
         )
+        if mili.VERSION >= (1, 0, 5):
+            self.custom_borders.constraint_rect = pygame.Rect((0, 0), self.desktop)
 
         self.mili.default_styles(
-            text={
-                "sysfont": False,
-                "name": "appdata/ytfont.ttf",
-                "growx": True,
-                "growy": True,
-            },
             line={"color": (255,) * 3},
             circle={"antialias": True},
             image={"smoothscale": True},
@@ -130,6 +127,41 @@ class MiniplayerUI:
             self.window.position = (
                 self.press_pos + (gmpos - self.press_pos) - self.rel_pos
             )
+            self.clamp_window()
+
+    def resize_ratio(self):
+        cover = ICONS.music_cover
+        if self.app.music.cover is not None:
+            cover = self.app.music.cover
+        if self.app.music_controls.music_videoclip_cover:
+            cover = self.app.music_controls.music_videoclip_cover
+        if cover is None:
+            return
+        ratio = cover.width / cover.height
+        neww = self.window.size[1] * ratio
+        diff = neww - self.window.size[0]
+        self.window.size = (neww, self.window.size[1])
+        self.window.position = (
+            int(self.window.position[0] - diff),
+            self.window.position[1],
+        )
+        self.clamp_window(True)
+
+    def clamp_window(self, force=False):
+        if mili.VERSION >= (1, 0, 5) and self.window.borderless and not force:
+            return
+        size = (
+            pygame.math.clamp(self.window.size[0], 100, self.desktop[0]),
+            pygame.math.clamp(self.window.size[1], 100, self.desktop[1]),
+        )
+        if self.window.size != size:
+            self.window.size = size
+        pos = (
+            pygame.math.clamp(self.window.position[0], 0, self.desktop[0] - size[0]),
+            pygame.math.clamp(self.window.position[1], 0, self.desktop[1] - size[1]),
+        )
+        if self.window.position != pos:
+            self.window.position = pos
 
     def ui(self):
         mpos = pygame.Vector2(pygame.mouse.get_pos(True))
@@ -145,6 +177,8 @@ class MiniplayerUI:
         if self.window.borderless:
             if self.can_abs_interact():
                 self.custom_borders.update()
+            if self.custom_borders.dragging or self.custom_borders.resizing:
+                self.clamp_window()
         else:
             self.move_window()
 
@@ -157,19 +191,24 @@ class MiniplayerUI:
             {"color": (20,) * 3, "outline": 1, "border_radius": 0, "draw_above": True}
         )
 
-        show_controls = self.hovered and (
-            self.static_time is None
-            or (pygame.time.get_ticks() - self.static_time < 1000)
+        show_controls = (
+            self.hovered
+            and (
+                self.static_time is None
+                or (pygame.time.get_ticks() - self.static_time < 1000)
+            )
+            or self.custom_borders.resizing
+            or self.custom_borders.dragging
         )
         self.ui_cover()
         self.mili.id_checkpoint(20)
         if show_controls:
             self.ui_controls()
-        self.mili.id_checkpoint(100)
+        self.mili.id_checkpoint(ID_OFFSET + 60000)
 
         if show_controls:
             self.ui_line()
-            self.mili.id_checkpoint(150)
+            self.mili.id_checkpoint(ID_OFFSET + 61000)
             self.ui_top_btn(ICONS.minip_back, "left", self.action_back_to_app)
             if self.window is None:
                 return
@@ -178,6 +217,7 @@ class MiniplayerUI:
                 "rightleft",
                 self.action_toggle_border,
             )
+            self.ui_top_btn(ICONS.ratio, "rightleftleft", self.resize_ratio)
             self.ui_top_btn(ICONS.close, "right", self.close)
 
         if not self.custom_borders.dragging and not self.custom_borders.resizing:
@@ -290,7 +330,7 @@ class MiniplayerUI:
                 self.mili.image(
                     self.bg_surf,
                     {
-                        "cache": mili.ImageCache.get_next_cache(),
+                        "cache": get_img_cache(),
                         "fill": True,
                         "border_radius": "50",
                         "fill_color": cond(self, it, *MP_OVERLAY_CV),
@@ -299,7 +339,7 @@ class MiniplayerUI:
             self.mili.image(
                 image,
                 {
-                    "cache": mili.ImageCache.get_next_cache(),
+                    "cache": get_img_cache(),
                     "pad": self.mult(1) + anim.value / 3,
                 },
             )
@@ -319,7 +359,15 @@ class MiniplayerUI:
             else pygame.Rect(0, 0, size, size).move_to(
                 topright=(
                     self.window.size[0]
-                    - (offset if side == "right" else size + offset * 2),
+                    - (
+                        offset
+                        if side == "right"
+                        else (
+                            size + offset * 2
+                            if side == "rightleft"
+                            else size * 2 + offset * 3
+                        )
+                    ),
                     offset,
                 )
             ),
@@ -334,7 +382,7 @@ class MiniplayerUI:
                     "fill_color": cond(self, it, *MP_OVERLAY_CV),
                 },
             )
-            self.mili.image(img, {"cache": mili.ImageCache.get_next_cache()})
+            self.mili.image(img, {"cache": get_img_cache()})
             if (it.left_just_released and self.can_interact()) and self.can_interact():
                 action()
 

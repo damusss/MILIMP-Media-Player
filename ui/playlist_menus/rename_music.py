@@ -15,7 +15,7 @@ class RenameMusicUI(UIComponent):
         self.music: MusicData = None
 
     def ui(self):
-        self.mili.id_checkpoint(3000 + 250)
+        self.mili.id_checkpoint(ID_OFFSET + 180000)
         with self.mili.begin(
             ((0, 0), self.app.split_size),
             {"ignore_grid": True, "blocking": True} | mili.CENTER,

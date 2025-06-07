@@ -19,7 +19,7 @@ class NewPlaylistUI(UIComponent):
         self.selected_folder = None
 
     def ui(self):
-        self.mili.id_checkpoint(3000 + 200)
+        self.mili.id_checkpoint(ID_OFFSET + 70000)
         with self.mili.begin(
             ((0, 0), self.app.split_size),
             {"ignore_grid": True, "blocking": True} | mili.CENTER,
@@ -124,7 +124,9 @@ class NewPlaylistUI(UIComponent):
 
     def ui_folder_playlist_modal(self):
         self.mili.text_element(
-            f"{self.selected_folder}" if self.selected_folder else "No folder selected (file drop supported)",
+            f"{self.selected_folder}"
+            if self.selected_folder
+            else "No folder selected (file drop supported)",
             {
                 "color": "white" if self.selected_folder else (150,) * 3,
                 "size": self.mult(20) if self.selected_folder else self.mult(18),

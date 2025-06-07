@@ -60,12 +60,15 @@ class DiscordPresence:
         self.active = False
         self.connecting = True
         self.connect_start_time = pygame.time.get_ticks()
-        thread = threading.Thread(target=discord_presence_connect, args=(self,))
+        self.pending_update = False
+        thread = threading.Thread(
+            target=discord_presence_connect, args=(self,), daemon=True
+        )
         thread.start()
 
     def update(self):
         self.last_update = pygame.time.get_ticks()
-        if not self.active:
+        if not self.active or self.pypresence is None or self.pending_update:
             return
         if self.pypresence is None:
             return
@@ -93,15 +96,13 @@ class DiscordPresence:
                 small_text = "Music is paused"
 
         try:
-            self.presence.update(
-                state=state,
-                details=details,
-                start=start,
-                large_image="MILIMP_logo",
-                large_text="MILIMP is connected to Discord",
-                small_image=small_image,
-                small_text=small_text,
+            thread = threading.Thread(
+                target=self.update_async,
+                args=(state, details, start, small_image, small_text),
+                daemon=True,
             )
+            self.pending_update = True
+            thread.start()
         except self.pypresence.PipeClosed:
             self.end()
             return
@@ -120,6 +121,18 @@ class DiscordPresence:
                 self.end()
             except Exception:
                 pass
+
+    def update_async(self, state, details, start, small_image, small_text):
+        self.presence.update(
+            state=state,
+            details=details,
+            start=start,
+            large_image="MILIMP_logo",
+            large_text="MILIMP is connected to Discord",
+            small_image=small_image,
+            small_text=small_text,
+        )
+        self.pending_update = False
 
     def update_connecting(self):
         if pygame.time.get_ticks() - self.connect_start_time >= 10000:

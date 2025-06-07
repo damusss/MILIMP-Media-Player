@@ -1,7 +1,9 @@
 import io
 import re
+import json
 import shutil
 import pygame
+import webbrowser
 import subprocess
 import urllib.error
 import urllib.request
@@ -11,11 +13,32 @@ from ui.common.data import YTVideoFormat, YTVideoResult
 if typing.TYPE_CHECKING:
     from ui.yt_search import YTSearchUI
     from ui.yt_menus.yt_download import YTDownloadUI
+    from ui.yt_menus.yt_playlist import YTPlaylistUI
 
 try:
     import youtubesearchpython as fast_yt_search
 except ImportError:
     fast_yt_search = None
+
+
+def get_playlist_name_async(playlist_ui: "YTPlaylistUI"):
+    command = f'yt-dlp --flat-playlist --dump-single-json "{playlist_ui.playlist_url}"'
+    print(f"EXECUTING FOREIGN COMMAND <{command}>")
+    try:
+        output = subprocess.check_output(
+            command, creationflags=SUBPROCESS_FLAGS
+        ).decode(errors="replace")
+        obj = json.loads(output)
+        playlist_ui.error = None
+        playlist_ui.playlist_name = obj.get(
+            "title", playlist_ui.playlist_url.split("playlist?list=")[-1]
+        )
+    except subprocess.CalledProcessError as e:
+        playlist_ui.error = f"subprocess error: '{e.output}'"
+        return
+    except Exception as e:
+        playlist_ui.error = f"unexpected error: '{e}'"
+        return
 
 
 def get_yt_image_async(file_path, url):
@@ -85,6 +108,13 @@ def download_channel_async(video: "YTVideoResult", ui: "YTSearchUI", error_img):
     if video.quick_pfp_url is not None:
         download_channel_quick_async(video, ui, error_img)
         return
+    if video.channel_id == "NA":
+        print(
+            f"Could not download profile picture of '{video.channel_url}' because the channel ID is unknown"
+        )
+        ui.downloading_channels.remove(video.channel_id)
+        ui.channel_covers[video.channel_id] = error_img
+        return
     try:
         file_path = f"data/yt_temp/channel_{video.channel_id}.jpg"
         if os.path.exists(file_path):
@@ -92,10 +122,10 @@ def download_channel_async(video: "YTVideoResult", ui: "YTSearchUI", error_img):
         else:
             command = f'yt-dlp -o "data/yt_temp/channel_{video.channel_id}" --write-thumbnail --playlist-items 0 {video.channel_url}'
             print(f"EXECUTING FOREIGN COMMAND <{command}>")
-            subprocess.run(command)
+            subprocess.run(command, creationflags=SUBPROCESS_FLAGS)
             image = pygame.image.load(file_path).convert_alpha()
         image = mili.fit_image(
-            ((0, 0), image.size), image, ready_border_radius=image.width / 2
+            ((0, 0), image.size), image, filters=[(mili.round_image)]
         )
         ui.downloading_channels.remove(video.channel_id)
         ui.channel_covers[video.channel_id] = image
@@ -165,11 +195,19 @@ def search_videos_fast_async(ui: "YTSearchUI", query):
 
 
 def search_videos_ytdlp_async(ui: "YTSearchUI", query):
+    # https://music.youtube.com/playlist?list=PLPVoTF-tbIz7gL9yoImXLg_-9-_Hx2zdM
     format_str = "%(title)s<TITLESEP>{'id': '%(id)s', 'url': '%(url)s', 'views': '%(view_count)s', 'channel': '%(channel)s', 'channel_id': '%(channel_id)s', 'channel_url': '%(channel_url)s', 'duration': '%(duration)s', 'live_status': '%(live_status)s', 'globality': '%(availability)s'}"
-    command = f'yt-dlp "ytsearch{ui.fetch_amount}:{query}" --flat-playlist --print "{format_str}" --extractor-args "youtube:music"'
+    query_str = f'"ytsearch{ui.fetch_amount}:{query}"'
+    extra_url = ""
+    if "playlist?list=" in query:
+        query_str = ""
+        extra_url = query
+    command = f'yt-dlp {query_str} --flat-playlist --print "{format_str}" --extractor-args "youtube:music" {extra_url}'
     print(f"EXECUTING FOREIGN COMMAND <{command}>")
     try:
-        output = subprocess.check_output(command).decode(errors="replace")
+        output = subprocess.check_output(
+            command, creationflags=SUBPROCESS_FLAGS
+        ).decode(errors="replace")
     except subprocess.CalledProcessError as e:
         ui.search_error = f"subprocess error: '{e.output}'"
         ui.searching = False
@@ -222,18 +260,22 @@ def search_videos_ytdlp_async(ui: "YTSearchUI", query):
 def check_ffmpeg():
     dep = shutil.which("ffmpeg")
     if dep is None:
-        pygame.display.message_box(
+        btn = pygame.display.message_box(
             "Missing Dependency 'ffmpeg'",
             "Merging audio and video tracks relies on the ffmpeg binary dependency that must be downloaded and possibly added to PATH. You can download the latest EXE from 'https://www.ffmpeg.org/download.html'.",
             "error",
             None,
-            ("Understood",),
+            ("Understood", "Open Link"),
         )
+        if btn == 1:
+            webbrowser.open("https://www.ffmpeg.org/download.html")
         return None
     try:
         command = "ffmpeg -version"
         print(f"EXECUTING FOREIGN COMMAND <{command}>")
-        output = subprocess.check_output(command, text=True)
+        output = subprocess.check_output(
+            command, text=True, creationflags=SUBPROCESS_FLAGS
+        )
         res = None
         for letter in output:
             if letter.isdecimal():
@@ -252,7 +294,7 @@ def download_yt_default_async(
     command = f'yt-dlp -o "{filename}" {video.url}'
     print(f"EXECUTING FOREIGN COMMAND <{command}>")
     try:
-        subprocess.run(command)
+        subprocess.run(command, creationflags=SUBPROCESS_FLAGS)
     except subprocess.CalledProcessError:
         ...
     ui.downloading -= 1
@@ -273,11 +315,24 @@ def download_yt_async(
     command = f'yt-dlp -o "{filename}" -f {fmt.id} {video.url}'
     print(f"EXECUTING FOREIGN COMMAND <{command}>")
     try:
-        subprocess.run(command)
+        subprocess.run(command, creationflags=SUBPROCESS_FLAGS)
     except subprocess.CalledProcessError:
         ...
     if not internal:
         ui.downloading -= 1
+
+
+def download_playlist_async(ui: "YTPlaylistUI"):
+    folder = f"data/yt_downloads/{ui.playlist_name}"
+    if not os.path.exists(folder):
+        os.mkdir(folder)
+    command = f'yt-dlp -P "{folder}" "{ui.playlist_url}"'
+    print(f"EXECUTING FOREIGN COMMAND <{command}>")
+    try:
+        subprocess.run(command, creationflags=SUBPROCESS_FLAGS)
+    except subprocess.CalledProcessError:
+        ...
+    ui.parent.downloading_playlist = None
 
 
 def merge_yt_async(
@@ -300,14 +355,14 @@ def merge_yt_async(
     command = f'ffmpeg -i "{invid}" -i "{inaud}" -c:v copy -c:a copy "{filename}"'
     try:
         print(f"EXECUTING FOREIGN COMMAND <{command}>")
-        subprocess.run(command, check=True)
+        subprocess.run(command, check=True, creationflags=SUBPROCESS_FLAGS)
         try:
             newin = filename
             filename = f"{almostifle}mp4"
             delete_yt_if_exists(filename)
             command = f'ffmpeg -i "{newin}" -c:v libx264 -preset medium -crf 20 -c:a aac -b:a 192k "{filename}"'
             print(f"EXECUTING FOREIGN COMMAND <{command}>")
-            subprocess.run(command)
+            subprocess.run(command, creationflags=SUBPROCESS_FLAGS)
         except subprocess.CalledProcessError:
             delete_yt_if_exists(filename)
     except subprocess.CalledProcessError:
@@ -322,7 +377,7 @@ def get_yt_formats_async(ui: "YTSearchUI", dui: "YTDownloadUI", video: "YTVideoR
     print(f"EXECUTING FOREIGN COMMAND <{command}>")
     try:
         output = subprocess.check_output(
-            command,
+            command, creationflags=SUBPROCESS_FLAGS
         ).decode(errors="replace")
     except subprocess.CalledProcessError as e:
         dui.error = f"subprocess error: '{e}'"

@@ -1,18 +1,19 @@
 import os
+import sys
 import mili
 import json
 import pygame
 import typing
+import subprocess
 
 if typing.TYPE_CHECKING:
     from MILIMP import MILIMP
 
-DEV_VERSION = 36
+DEV_VERSION = 37
 PREFERRED_SIZES = (415, 700)
 MINIP_PREFERRED_SIZES = 200, 200
 UI_SIZES = (480, 720)
 SURF = pygame.Surface((10, 10), pygame.SRCALPHA)
-USE_FAST_VIDEO = True
 VIDEO_SUPPORTED = [
     "mp4",
     "webm",
@@ -77,6 +78,10 @@ ALPHA = 180
 BORDER_CV = 100
 TOPB_CV = 15, 25, 8
 GROUP_CV = MUSIC_CV
+ID_OFFSET = 5000
+ID_POST_OFFSET = 500000
+LARGE_MEDIA_SIZE = 900000000
+SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if getattr(sys, "frozen", False) else 0
 THUMBNAILS = {
     "120x90": "",
     "320x180": "mq",
@@ -84,6 +89,17 @@ THUMBNAILS = {
     "640x480": "sd",
     "1920x1080": "maxres",
 }
+INFO = """MILIMP uses the pygame.mixer.music module to play audio (which uses SDL_mixer). That library can only play audio files, meaning that if you load a video inside the media player, it will be converted to an audio file. That process is usually pretty fast but can take quite some time if the video file is very large. The library used to convert formats is moviepy which uses ffmpeg under the hood.
+The youtube search/download interface is performed by the yt-dlp library. That library is an external tool that needs to be installed and added to PATH. Any operation network related is handled by yt-dlp using threaded subprocesses that happen in the background. Check the terminal to see detailed information. Every foreign command can take an arbitrary amount of time to be completed.
+The ability to stream video frames in the application is not possible with pygame. Moviepy is used again, which uses ffmpeg. Extracting frames is generally a slow operation - it's possible for it to be smooth thanks to ffmpeg ability to manage sequential frames. This means that quickly jumping to a different music position won't be as smooth and ffmpeg will need to adjust to the new position. This process can take a small time or be noticeable depending on how heavy the video is.
+Usually, the frame extraction is performed on a different thread. This means that for most videos the app will remain at a very high framerate and the video won't slow it down. If the video is heavy (big file size or high resolution), some lag might occur when starting it or jumping positions because the video thread has less CPU power to work with. A heavy video will probably lag if many UI menus are open inside the application as the main thread will steal too much power.
+By default, if a video's size is larger than the monitor, the ffmpeg target resolution is reduced to match the monitor. If a video is larger than 900 Megabytes the media is considered "heavy". In that case the resolution will be kept but the nearest neighbor scaling alogorithm will be used. If the video is multithreaded the fast bilinear algorithm is used and the video is scaled down by 1.5x (compared to the monitor's size)
+You can disable video multithreading at any time in the settings. This is not advised for small videos, but might be benefitial for heavy ones, because the frame extraction happens on the same thread and has all the CPU power it needs (reducing the app's framerate). No multithreading will eliminate lag and is probably the best choice for very heavy videos.
+"""
+
+
+def get_img_cache():
+    return "auto"
 
 
 def cond(app: "MILIMP", it: mili.Interaction, normal, hover, press):
@@ -135,8 +151,8 @@ def handle_arrow_scroll(
     if any([keys[key] for key in downbind.get_keycodes()]):
         amount += 1
     scroll.scroll(0, amount * 600 * app.delta_time)
-    if scrollbar is not None:
-        scrollbar.scroll_moved()
+    # if scrollbar is not None:
+    # scrollbar.scroll_moved()
 
 
 def handle_wheel_scroll(
@@ -148,8 +164,8 @@ def handle_wheel_scroll(
     if app.split_screen and pygame.mouse.get_pos()[0] > app.split_w:
         return
     scroll.scroll(0, -(event.y * 50) * app.ui_mult)
-    if scrollbar is not None:
-        scrollbar.scroll_moved()
+    # if scrollbar is not None:
+    #    scrollbar.scroll_moved()
 
 
 def parse_music_stem(app: "MILIMP", stem: str):
@@ -221,7 +237,7 @@ class UIComponent:
                 image,
                 {
                     "smoothscale": True,
-                    "cache": mili.ImageCache.get_next_cache(),
+                    "cache": get_img_cache(),
                     "pad": self.mult(anim.value, False) + self.mult(3),
                 },
             )
@@ -310,7 +326,7 @@ class UIComponent:
             self.mili.image(
                 image,
                 {
-                    "cache": mili.ImageCache.get_next_cache(),
+                    "cache": get_img_cache(),
                     "pad": self.mult(8 + anim.value / 1.8),
                 },
             )
@@ -388,7 +404,7 @@ class UIComponent:
             self.mili.image(
                 image,
                 {
-                    "cache": mili.ImageCache.get_next_cache(),
+                    "cache": get_img_cache(),
                     "smoothscale": True,
                     "pad": self.mult(3 + anim.value),
                 },
@@ -583,6 +599,11 @@ class Icons:
         self.audio_track = load_icon("audio_track")
         self.search_video = load_icon("search_video")
         self.search_more = load_icon("search_more")
+        self.ratio = load_icon("ratio")
+        self.t_one = load_icon("t_one")
+        self.t_two = load_icon("t_two")
+        self.video_on = load_icon("video_on")
+        self.video_off = load_icon("video_off")
 
 
 ICONS = Icons()

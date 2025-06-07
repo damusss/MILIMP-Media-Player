@@ -18,7 +18,7 @@ class PlaylistAddUI(UIComponent):
         self.create_type = "music"
 
     def ui(self):
-        self.mili.id_checkpoint(3000)
+        self.mili.id_checkpoint(ID_OFFSET + 160000)
         with self.mili.begin(
             ((0, 0), self.app.split_size),
             {"ignore_grid": True, "blocking": True} | mili.CENTER,

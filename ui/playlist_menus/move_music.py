@@ -97,7 +97,7 @@ class MoveMusicUI(UIComponent):
                     if cover is not None:
                         self.mili.image_element(
                             cover,
-                            {"cache": mili.ImageCache.get_next_cache()},
+                            {"cache": get_img_cache()},
                             (0, 0, self.mult(50), self.mult(50)),
                             {"align": "center", "blocking": False},
                         )

@@ -1,6 +1,7 @@
 import mili
 import pygame
 import threading
+import webbrowser
 from ui.common import *
 
 
@@ -8,13 +9,14 @@ class SettingsUI(UIComponent):
     def init(self):
         self.anim_close = animation(-5)
         self.anim_handle = animation(-3)
-        self.anims = [animation(-3) for i in range(8)]
+        self.anim_info = animation(-3)
+        self.anims = [animation(-3) for i in range(10)]
         self.cache = mili.ImageCache()
         self.slider = mili.Slider({"lock_y": True, "handle_size": (10, 10)})
         self.bar_controlled = False
 
     def ui(self):
-        self.mili.id_checkpoint(3000 + 400)
+        self.mili.id_checkpoint(ID_OFFSET + 130000)
         with self.mili.begin(
             ((0, 0), self.app.split_size),
             {"ignore_grid": True, "blocking": True} | mili.CENTER,
@@ -45,9 +47,20 @@ class SettingsUI(UIComponent):
             )
 
     def ui_modal_content(self):
-        self.mili.text_element(
-            "Settings", {"size": self.mult(26)}, None, mili.CENTER | {"blocking": None}
-        )
+        with self.mili.begin(None, mili.RESIZE | mili.X | mili.CENTER | {"pady": 0}):
+            self.mili.text_element(
+                "Settings",
+                {"size": self.mult(26)},
+                None,
+                mili.CENTER | {"blocking": None},
+            )
+            self.ui_image_btn(
+                ICONS.infooff,
+                self.action_metadata,
+                self.anim_info,
+                size=25,
+                tooltip="Show low level application state information",
+            )
         self.ui_slider()
         self.ui_buttons_top()
         self.ui_buttons_middle()
@@ -138,9 +151,20 @@ class SettingsUI(UIComponent):
             | mili.PADLESS,
         ):
             self.ui_image_btn(
+                ICONS.t_two if self.app.universal_font else ICONS.t_one,
+                self.action_font,
+                self.anims[5],
+                br="15",
+                tooltip=(
+                    "Use YT Music font"
+                    if self.app.universal_font
+                    else "Use universal font"
+                ),
+            )
+            self.ui_image_btn(
                 ICONS.fps60 if self.app.user_framerate == 60 else ICONS.fps30,
                 self.action_fps,
-                self.anims[5],
+                self.anims[6],
                 br="5",
                 tooltip="Set the framerate to 30"
                 if self.app.user_framerate == 60
@@ -151,15 +175,23 @@ class SettingsUI(UIComponent):
                 if not self.app.discord_presence.active
                 else ICONS.discordon,
                 self.action_discord,
-                self.anims[6],
+                self.anims[7],
                 tooltip="Disable the discord presence"
                 if self.app.discord_presence.active
                 else "Enable the discord presence",
             )
             self.ui_image_btn(
+                ICONS.video_on if self.app.videoclip_on else ICONS.video_off,
+                self.action_videoclip,
+                self.anims[8],
+                tooltip="Disable videoclip"
+                if self.app.videoclip_threaded
+                else "Enable videoclip",
+            )
+            self.ui_image_btn(
                 ICONS.threadon if self.app.videoclip_threaded else ICONS.threadoff,
                 self.action_thread,
-                self.anims[7],
+                self.anims[9],
                 tooltip="Disable videoclip multithreading"
                 if self.app.videoclip_threaded
                 else "Enable videoclip multithreading",
@@ -234,26 +266,46 @@ class SettingsUI(UIComponent):
                     self.app.cursor_hover = True
         return handle
 
+    def action_metadata(self):
+        self.app.modal_state = "state_info"
+
+    def action_font(self):
+        self.app.universal_font = not self.app.universal_font
+        mili.clear_font_cache()
+        if self.app.universal_font and not os.path.exists("appdata/universal.ttf"):
+            btn = pygame.display.message_box(
+                "Missing universal font file",
+                "For unknown reasons the appdata folder is missing the 'universal.ttf' font file. If you deleted it by accident you can get it back from 'https://github.com/satbyy/go-noto-universal/releases/' (pick the latest regular).",
+                "error",
+                None,
+                ("Understood", "Open Link"),
+            )
+            if btn == 1:
+                webbrowser.open("https://github.com/satbyy/go-noto-universal/releases/")
+            self.app.universal_font = False
+        self.app.apply_font()
+
+    def action_videoclip(self):
+        self.app.videoclip_on = not self.app.videoclip_on
+
     def action_thread(self):
+        getter = self.app.music_controls.async_videoclip
+        if getter is None or self.app.music is None:
+            self.app.videoclip_threaded = not self.app.videoclip_threaded
+            return
         if self.app.videoclip_threaded:
-            if (
-                self.app.music is not None
-                and self.app.music_controls.async_videoclip is not None
-            ):
-                self.app.music_controls.async_videoclip.alive = False
-                self.app.music_controls.async_videoclip.thread.join()
+            getter.alive = False
+            getter.close_on_kill = False
+            getter.thread.join()
+            getter.close_on_kill = True
+            getter.remake_videoclip = True
         else:
-            if (
-                self.app.music is not None
-                and self.app.music_controls.async_videoclip is not None
-            ):
-                self.app.music_controls.async_videoclip.first = True
-                thread = threading.Thread(
-                    target=self.app.music_controls.async_videoclip.loop
-                )
-                self.app.music_controls.async_videoclip.alive = True
-                self.app.music_controls.async_videoclip.thread = thread
-                thread.start()
+            getter.first = True
+            thread = threading.Thread(target=getter.loop)
+            getter.alive = True
+            getter.thread = thread
+            getter.remake_videoclip = True
+            thread.start()
         self.app.videoclip_threaded = not self.app.videoclip_threaded
 
     def action_discord(self):

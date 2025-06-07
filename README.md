@@ -11,6 +11,8 @@ An application using MILI-UI featuring a rich media player.<br>
     -   Modern, fast, responsive UI (split screen for wide windows)
     -   30/60 FPS, Power saving, Async loading/processing
     -   Custom titlebar/borders
+    -   Drop file support
+    -   Universal font integration
     -   Rich Discord presence
     -   History
     -   Keybinds
@@ -18,18 +20,18 @@ An application using MILI-UI featuring a rich media player.<br>
 -   Youtube Music Search
 
     -   Search videos
-    -   Preview video with youtube web embed
+    -   Preview video with integrated youtube web embed
     -   Display thumbnail, title, views, channel name, channel profile picture, duration
     -   Sort by default, title, views, channel
     -   Open video in browser, open channel in browser
     -   Download video, audio or both with any format
-    -   Download thumbnail
+    -   Download max res thumbnail
 
 -   Playlists (load from folder, rename, delete, reorder, upload/generate cover, search)
 
     -   Playlist Groups (collapsable, horizontal/vertical layout)
 
--   Musics (add, rename, delete, reorder, move to playlist, show in explorer, convert to MP3)
+-   Musics (add, rename, delete, reorder, move to playlist, show in explorer, convert to MP3, change cover, view metadata)
 
     -   **Audio and Video**: MP4, WEBM, AVI, MKV, MOV, FLV, WMV, M4V, 3GP, MPEG, MPG, OGV, MTS, TS
 
@@ -43,7 +45,6 @@ An application using MILI-UI featuring a rich media player.<br>
     -   Loop (playlist/music), Shuffle
     -   Miniplayer
     -   Video player (+ maximized/fullscreen)
-    -   Change cover
 
 The file extension must always match the music format.
 Due to SDL limitations only a subset of the supported formats can be played directly, the rest will have a copy converted to MP3.
@@ -123,17 +124,23 @@ There are 2 settings that can only be accessed in the `data/settings.json` file.
 # Dependencies
 
 -   `pygame-ce` >= 2.5.2 (music, windowing, input, rendering backend)
--   `mili-ui` >= 1.0.4 (UI backend)
+-   `mili-ui` >= 1.0.6 (UI backend)
 -   `moviepy` >= 2.1.2 (video/audio converter/reader)
 -   **[optional]** `pypresence` >= 4.3.0 (Discord presence)
 -   **[optional]** `pywebview` >= 5.4 (YouTube embed)
 -   **[optional]** `youtube-search-python` >= 1.6.6 (alternative YouTube search method)
 
-## Foreign dependencies
+## Optional Foreign dependencies
 
-**[optional]** `yt-dlp` binary (latest) from https://github.com/yt-dlp/yt-dlp/releases (either add it to PATH or put it in the same directory as the main file) (needed for YouTube searches and downloads)
+### `yt-dlp` binary (latest)
+- Download from https://github.com/yt-dlp/yt-dlp/releases
+- Either add it to PATH or put it in the same directory as the main file
+- Needed for YouTube searches and downloads
 
-**[optional]** `ffmpeg` binary (from version 7, latest suggested) from https://www.ffmpeg.org/download.html (either add the bin/ to path or put the binary in the same directory as the main file) (needed to merge downloaded audio and video tracks from youtube)
+### `ffmpeg` binary (>=7.0/latest)
+- Download from https://www.ffmpeg.org/download.html
+- Either add the bin/ to path or put the binary in the same directory as the main file
+- Needed to merge downloaded audio and video tracks from youtube
 
 # Codebase Notice
 

@@ -4,12 +4,14 @@ from ui.common import *
 from ui.common.data import Playlist
 from ui.list_menus.new_playlist import NewPlaylistUI
 from ui.list_menus.rename_playlist import RenamePlaylistUI
+from ui.list_menus.info import InfoUI
 
 
 class ListViewerUI(UIComponent):
     def init(self):
         self.new_playlist = NewPlaylistUI(self.app)
         self.rename_playlist = RenamePlaylistUI(self.app)
+        self.info = InfoUI(self.app)
         self.modal_state = "none"
         self.middle_selected = None
 
@@ -41,6 +43,8 @@ class ListViewerUI(UIComponent):
                 self.new_playlist.close()
             elif self.modal_state == "rename_playlist":
                 self.rename_playlist.close()
+            elif self.modal_state == "info":
+                self.info.close()
 
     def ui(self):
         self.ui_check()
@@ -62,7 +66,7 @@ class ListViewerUI(UIComponent):
             {"fillx": True, "blocking": False},
         )
 
-        self.mili.id_checkpoint(45)
+        self.mili.id_checkpoint(ID_OFFSET + 50000)
         with self.mili.begin(
             (0, 0, self.app.split_w, 0),
             {"filly": True},
@@ -72,7 +76,7 @@ class ListViewerUI(UIComponent):
                 self.scrollbar.style["short_size"] = self.mult(self.sbar_size)
                 self.scrollbar.update(scroll_cont)
                 self.ui_scrollbar()
-                self.mili.id_checkpoint(50)
+                self.mili.id_checkpoint(ID_OFFSET + 51000)
 
                 for playlist in self.app.playlists:
                     self.ui_playlist(playlist)
@@ -107,10 +111,28 @@ class ListViewerUI(UIComponent):
                 2,
                 tooltip="Search from YT Music",
             )
+            self.ui_info_btn()
         elif self.modal_state == "new_playlist":
             self.new_playlist.ui()
         elif self.modal_state == "rename_playlist":
             self.rename_playlist.ui()
+        elif self.modal_state == "info":
+            self.info.ui()
+
+    def ui_info_btn(self):
+        offset = self.mult(7)
+        size = self.mult(25)
+        with self.mili.element(
+            (offset, offset, size, size), {"ignore_grid": True}
+        ) as element:
+            self.mili.image(
+                ICONS.infooff,
+                {"alpha": cond(self.app, element, 180, 255, 150), "pad": self.mult(2)},
+            )
+            if self.app.can_interact() and element.left_clicked:
+                self.action_info()
+            if element.hovered:
+                self.app.cursor_hover = True
 
     def ui_scrollbar(self):
         if self.scrollbar.needed:
@@ -156,7 +178,7 @@ class ListViewerUI(UIComponent):
             if cover is not None:
                 self.mili.image_element(
                     cover,
-                    {"cache": mili.ImageCache.get_next_cache()},
+                    {"cache": get_img_cache()},
                     (0, 0, imagesize, imagesize),
                     {"align": "center", "blocking": False},
                 )
@@ -164,7 +186,7 @@ class ListViewerUI(UIComponent):
                 padsize = self.mult(30)
                 self.mili.image_element(
                     ICONS.playbars,
-                    {"cache": mili.ImageCache.get_next_cache()},
+                    {"cache": get_img_cache()},
                     (0, 0, padsize, padsize),
                     {"align": "center", "blocking": False},
                 )
@@ -228,7 +250,7 @@ class ListViewerUI(UIComponent):
                         ALPHA,
                     ),
                     "border_radius": 0,
-                    "cache": mili.ImageCache.get_next_cache(),
+                    "cache": get_img_cache(),
                 },
             )
         else:
@@ -248,6 +270,9 @@ class ListViewerUI(UIComponent):
 
     def action_new(self):
         self.modal_state = "new_playlist"
+
+    def action_info(self):
+        self.modal_state = "info"
 
     def action_rename(self):
         self.modal_state = "rename_playlist"
@@ -301,3 +326,5 @@ class ListViewerUI(UIComponent):
             self.new_playlist.event(event)
         elif self.modal_state == "rename_playlist":
             self.rename_playlist.event(event)
+        elif self.modal_state == "info":
+            self.info.event(event)

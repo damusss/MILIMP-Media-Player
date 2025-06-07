@@ -92,7 +92,7 @@ class YTVideoResult:
         thumb_sizes,
         thumb_url=None,
         formats=None,
-        quick_pfp_url=None
+        quick_pfp_url=None,
     ):
         self.title = title.strip()
         self.id = id_
@@ -217,7 +217,8 @@ class AsyncYTEmbed:
 
 
 class AsyncVideoclipGetter:
-    def __init__(self, realpath):
+    def __init__(self, realpath, app: "MILIMP"):
+        self.app = app
         self.first = True
         self.realpath = realpath
         self.thread = None
@@ -230,43 +231,113 @@ class AsyncVideoclipGetter:
         self.alive = True
         self.clock = pygame.Clock()
         self.rects = []
+        self.close_on_kill = True
+        self.desktop_size = pygame.Vector2(pygame.display.get_desktop_sizes()[0])
+        self.is_large_media = False
+        self.remake_videoclip = False
+        self.fps_history = []
+        self.last_fps_check = pygame.time.get_ticks()
+        self.current_fps = 0
+        self.original_size = None
+
+    def make_videoclip(self):
+        filesize = os.path.getsize(self.realpath)
+        self.is_large_media = filesize > LARGE_MEDIA_SIZE
+        resize = (
+            ("fast_bilinear" if self.app.videoclip_threaded else "neighbor")
+            if self.is_large_media
+            else "bicubic"
+        )
+        self.videoclip = moviepy.VideoFileClip(
+            self.realpath, audio=False, resize_algorithm=resize
+        )
+        desktop = self.desktop_size
+        if self.is_large_media:
+            desktop = self.desktop_size / (1.5 if self.app.videoclip_threaded else 1)
+        size = pygame.Vector2(self.videoclip.size)
+        self.original_size = size
+        new_size = None
+        if size.x > desktop.x:
+            change_ratio = desktop.x / size.x
+            new_w = desktop.x
+            new_h = size.y * change_ratio
+            if new_h > desktop.y:
+                new_h = desktop.y
+                ratio = size.y / size.x
+                new_w = new_h * ratio
+            new_size = (int(new_w), int(new_h))
+        elif size.y > desktop.y:
+            ratio = size.y / size.x
+            new_h = desktop.y
+            new_w = new_h * ratio
+            if new_w > desktop.x:
+                ratio = size.x / size.y
+                new_w = desktop.x
+                new_h = new_w * ratio
+            new_size = (int(new_w), int(new_h))
+        if new_size is not None:
+            self.videoclip.close()
+            self.videoclip = moviepy.VideoFileClip(
+                self.realpath,
+                target_resolution=new_size,
+                audio=False,
+                resize_algorithm=resize,
+            )
 
     def load_videoclip(self):
         try:
-            self.videoclip = moviepy.VideoFileClip(
-                self.realpath
-            )
+            self.make_videoclip()
         except Exception as e:
             self.alive = False
             print(e)
         self.first = False
 
     def update(self):
-        if self.videoclip is None and self.first:
+        if (self.videoclip is None and self.first) or self.remake_videoclip:
             self.load_videoclip()
+            self.remake_videoclip = False
         if not self.active or self.videoclip is None or self.time is None:
             self.clock.tick(10)
             return
-        self.clock.tick(min(self.videoclip.fps + 5, self.framerate))
-        frame = self.videoclip.get_frame(self.time)
-        self.output = pygame.surfarray.make_surface(numpy.transpose(frame, (1, 0, 2)))
-        self.scaled_output = {}
-        small_output = None
-        smallest = float("inf")
-        for pad, rect in self.rects:
-            res = mili.fit_image(rect, self.output, pad, pad, smoothscale=True)
-            self.scaled_output[rect.size] = res
-            if rect.w * rect.h < smallest:
-                small_output = res
-                smallest = rect.w * rect.h
-        self.small_output = small_output
+        if self.app.videoclip_threaded:
+            self.clock.tick(min(self.videoclip.fps + 5, self.framerate))
+            self.current_fps = self.clock.get_fps()
+            if self.app.videoclip_on:
+                now = pygame.time.get_ticks()
+                if self.current_fps != 0 and now - self.last_fps_check >= 500:
+                    self.fps_history.append(self.current_fps)
+                    self.last_fps_check = now
+                if len(self.fps_history) > 10:
+                    average = sum(self.fps_history) / len(self.fps_history)
+                    if average < 15:
+                        self.app.remove_videoclip_threading = True
+        if self.app.videoclip_on:
+            self.output = pygame.surfarray.make_surface(
+                numpy.transpose(self.videoclip.get_frame(self.time), (1, 0, 2))
+            )
+            self.scaled_output = {}
+            self.small_output = None
+            small_output = None
+            smallest = float("inf")
+            for pad, rect in self.rects:
+                res = mili.fit_image(rect, self.output, pad, pad, smoothscale=True)
+                self.scaled_output[rect.size] = res
+                if rect.w * rect.h < smallest:
+                    small_output = res
+                    smallest = rect.w * rect.h
+            self.small_output = small_output
+        else:
+            self.output = None
+            self.scaled_output = {}
+            self.small_output = None
 
     def loop(self):
         while self.alive:
             self.update()
-        if self.videoclip is not None:
-            self.videoclip.close()
-        self.videoclip = None
+        if self.close_on_kill:
+            if self.videoclip is not None:
+                self.videoclip.close()
+            self.videoclip = None
 
 
 class MusicData:
@@ -280,6 +351,9 @@ class MusicData:
     converted: bool
     load_exc = None
     group: "PlaylistGroup|None"
+    video_size: tuple[int, int] | None
+    video_fps: float | None
+    filesize: int | None
 
     @classmethod
     def load(
@@ -300,6 +374,9 @@ class MusicData:
         self.load_exc = None
         self.converted = converted
         self.group = None
+        self.video_size = NotCached
+        self.video_fps = NotCached
+        self.filesize = None
 
         cover_path = f"data/music_covers/{playlist.name}_{self.realstem}.png"
         if not os.path.exists(realpath):
@@ -311,6 +388,7 @@ class MusicData:
                 ("Understood",),
             )
             return
+        self.filesize = os.path.getsize(realpath)
 
         if self.isvideo:
             new_path = pathlib.Path(
@@ -323,7 +401,9 @@ class MusicData:
                 return self
 
             try:
-                videofile = moviepy.VideoFileClip(str(realpath))
+                videofile = moviepy.VideoFileClip(str(realpath), audio=False)
+                self.video_size = videofile.size
+                self.video_fps = videofile.fps
             except Exception:
                 pygame.display.message_box(
                     "Could not load music",
@@ -340,7 +420,9 @@ class MusicData:
                     if loading_image is not None:
                         self.cover = loading_image
                     thread = threading.Thread(
-                        target=get_cover_async, args=(self, videofile, cover_path)
+                        target=get_cover_async,
+                        args=(self, videofile, cover_path),
+                        daemon=True,
                     )
                     thread.start()
                 except Exception:
@@ -365,7 +447,9 @@ class MusicData:
             self.audiopath = new_path
             self.pending = True
             thread = threading.Thread(
-                target=convert_music_async, args=(self, audiofile, new_path)
+                target=convert_music_async,
+                args=(self, audiofile, new_path),
+                daemon=True,
             )
             thread.start()
             return self
@@ -395,7 +479,9 @@ class MusicData:
             self.audiopath = new_path
             self.pending = True
             thread = threading.Thread(
-                target=convert_music_async, args=(self, audiofile, new_path)
+                target=convert_music_async,
+                args=(self, audiofile, new_path),
+                daemon=True,
             )
             thread.start()
             return self
@@ -449,7 +535,9 @@ class MusicData:
         if loading_image is not None:
             self.cover = loading_image
         if startup is None:
-            thread = threading.Thread(target=load_cover_async, args=(path, self))
+            thread = threading.Thread(
+                target=load_cover_async, args=(path, self), daemon=True
+            )
             thread.start()
         else:
             startup.startup_covers_toload.append((self, path))
@@ -461,6 +549,15 @@ class MusicData:
             soundfile.close()
         except Exception:
             self.duration = None
+
+    def cache_video_metadata(self):
+        try:
+            videofile = moviepy.VideoFileClip(str(self.realpath), audio=False)
+            self.video_size = videofile.size
+            self.video_fps = videofile.fps
+            videofile.close()
+        except Exception:
+            self.video_size = None
 
     def cover_or(self, default):
         if self.cover is None:
@@ -584,6 +681,7 @@ class Playlist:
             thread = threading.Thread(
                 target=load_cover_async,
                 args=(f"data/covers/{self.name}.png", self),
+                daemon=True,
             )
             thread.start()
 
