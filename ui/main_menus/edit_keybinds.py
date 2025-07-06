@@ -33,7 +33,7 @@ class EditKeybindsUI(UIComponent):
             with self.mili.begin(
                 (0, 0, 0, 0),
                 {
-                    "fillx": "90",
+                    "fillx": "70" if self.app.split_w > 1200 else "90",
                     "filly": "76",
                     "align": "center",
                     "spacing": self.mult(13),
@@ -93,25 +93,6 @@ class EditKeybindsUI(UIComponent):
             for name, bind in Keybinds.instance.keybinds.items():
                 self.ui_keybind(name, bind, cont.data)
         self.mili.element(None, {"blocking": None})
-
-    def ui_scrollbar(self):
-        if self.scrollbar.needed:
-            with self.mili.begin(
-                self.scrollbar.bar_rect, self.scrollbar.bar_style | {"blocking": None}
-            ):
-                self.mili.rect({"color": (BSBAR_CV,) * 3})
-                if handle := self.mili.element(
-                    self.scrollbar.handle_rect, self.scrollbar.handle_style
-                ):
-                    self.mili.rect(
-                        {"color": (cond(self.app, handle, *SHANDLE_CV) * 1.2,) * 3}
-                    )
-                    self.scrollbar.update_handle(handle)
-                    if (
-                        handle.hovered or handle.unhover_pressed
-                    ) and self.app.can_interact():
-                        self.app.cursor_hover = True
-                        self.app.tick_tooltip(None)
 
     def ui_keybind(self, name, bind: Keybinds.Binding, parent_data):
         height = self.mult(30)

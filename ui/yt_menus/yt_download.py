@@ -47,13 +47,18 @@ class YTDownloadUI(UIComponent):
             self.mili.image(
                 SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
             )
-            perc = 40 if self.app.split_w > 1200 else 80
+            perc = (
+                40
+                if self.app.split_w > 1400
+                else (75 if self.app.split_w > 600 else 90)
+            )
             with self.mili.begin(
                 (0, 0, 0, 0),
                 {
                     "fillx": f"{perc}",
-                    "filly": "80",
+                    "filly": "80" if self.app.split_screen else "76",
                     "align": "center",
+                    "anchor": "first",
                     "offset": (
                         0,
                         -self.app.tbarh
@@ -227,7 +232,7 @@ class YTDownloadUI(UIComponent):
                         fmt.extra_data,
                         {"growx": False, "size": self.mult(12), "color": (160,) * 3},
                         None,
-                        {"fillx": True},
+                        {"fillx": True, "offset": self.scroll.get_offset()},
                     )
                 lasttype = fmt.type
 
@@ -349,25 +354,6 @@ class YTDownloadUI(UIComponent):
                         None,
                         {"blocking": False},
                     )
-
-    def ui_scrollbar(self):
-        if self.scrollbar.needed:
-            with self.mili.begin(
-                self.scrollbar.bar_rect, self.scrollbar.bar_style | {"blocking": None}
-            ):
-                self.mili.rect({"color": (BSBAR_CV,) * 3})
-                if handle := self.mili.element(
-                    self.scrollbar.handle_rect, self.scrollbar.handle_style
-                ):
-                    self.mili.rect(
-                        {"color": (cond(self.app, handle, *SHANDLE_CV) * 1.2,) * 3}
-                    )
-                    self.scrollbar.update_handle(handle)
-                    if (
-                        handle.hovered or handle.unhover_pressed
-                    ) and self.app.can_interact():
-                        self.app.cursor_hover = True
-                        self.app.tick_tooltip(None)
 
     def enter(self, video: YTVideoResult):
         self.video = video

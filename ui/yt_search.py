@@ -45,7 +45,9 @@ class YTSearchUI(UIComponent):
         )
         self.sbar_size = self.scrollbar.style["short_size"]
         self.modal_state = "none"
-        self.search_entryline = UIEntryline("Enter video query...", False)
+        self.search_entryline = UIEntryline(
+            "Enter video query (video and playlist links are allowed)...", False
+        )
         self.video_results: list[YTVideoResult] = []
         self.sort_method = "default"
         self.thumb_method = "640x480"
@@ -96,9 +98,13 @@ class YTSearchUI(UIComponent):
         self.downloading_playlist = None
         self.more_options = False
         self.video_i = 0
+        self.last_search = None
 
     def is_playlist(self):
-        return "playlist?list=" in self.search_entryline.text
+        return (
+            "playlist?list=" in self.search_entryline.text
+            and self.last_search == self.search_entryline.text
+        )
 
     def ui_check(self):
         if self.app.modal_state != "none" and self.modal_state != "none":
@@ -280,6 +286,22 @@ class YTSearchUI(UIComponent):
                 self.app.cursor_hover = True
         if dm.shown:
             self.ui_dropmenu_menu(dm, wordid, sel.data.rect.w)
+        else:
+            size = self.mult(20)
+            with self.mili.begin(
+                (dm.topleft, (sel.data.rect.w, 0)),
+                {
+                    "resizey": True,
+                    "update_id": f"dm_m_{wordid}",
+                    "pad": 0,
+                    "ignore_grid": True,
+                    "parent_id": 0,
+                    "z": 99999,
+                    "spacing": 0,
+                },
+            ):
+                for opt in dm.options:
+                    self.mili.element(None)
 
     def ui_dropmenu_menu(self, dm: mili.DropMenu, wordid, w):
         size = self.mult(20)
@@ -294,8 +316,8 @@ class YTSearchUI(UIComponent):
                 "z": 99999,
             },
         ):
-            if (int(dm.topleft.x), int(dm.topleft.y)) == (0, 0):
-                return
+            # if (int(dm.topleft.x), int(dm.topleft.y)) == (0, 0):
+            #    return
             self.mili.rect({"color": (OVERLAY_CV[0],) * 3, "border_radius": 0})
             self.mili.rect(
                 {
@@ -394,6 +416,7 @@ class YTSearchUI(UIComponent):
                 "axis": "x",
             },
         ):
+            self.mili.rect({"color": "yellow"})
             self.mili.text_element(
                 'The query was interpreted as the link to a <color fg="red">Playlist.</color>',
                 {"size": self.mult(20), "align": "left", "rich": True, "cache": "auto"},
@@ -486,8 +509,9 @@ class YTSearchUI(UIComponent):
                         self.app.tick_tooltip(None)
 
     def ui_video(self, video: YTVideoResult, i):
-        H = self.mult(140)
-        VH = self.mult(140 - 10)
+        vs = 140 if self.app.split_w >= 900 else 100
+        H = self.mult(vs)
+        VH = self.mult(vs - (10 if self.app.split_w > 900 else 5))
         mult = 1 / 0.5625
         with self.mili.begin(
             None,
@@ -532,7 +556,7 @@ class YTSearchUI(UIComponent):
                     self.mili.text_element(
                         video.title if video.title else "<No Title>",
                         {
-                            "size": self.mult(19),
+                            "size": self.mult(19 if self.app.split_w > 900 else 16),
                             "growx": False,
                             "growy": True,
                             "slow_grow": True,
@@ -551,7 +575,11 @@ class YTSearchUI(UIComponent):
                     )
                     stack = False
                     out = video.cache.get_output()
-                    if out is not None and out.height >= H / 2.5:
+                    if (
+                        out is not None
+                        and out.height >= H / 2.5
+                        or self.app.split_w < 600
+                    ):
                         stack = True
                     self.ui_video_metadata(video, stack)
                 if self.app.can_interact():
@@ -569,15 +597,14 @@ class YTSearchUI(UIComponent):
 
     def ui_video_duration(self, video: YTVideoResult, isize):
         style = {"size": self.mult(16), "padx": 3}
-        if isinstance(video.duration, str):
-            txt = video.duration
-        else:
-            try:
-                duration = float(video.duration)
-            except ValueError:
-                return
-
+        try:
+            duration = float(video.duration)
             txt = format_music_time(duration)
+        except ValueError:
+            if isinstance(video.duration, str):
+                txt = video.duration
+            else:
+                return
         size = self.mili.text_size(txt, style)
         self.mili.element(
             pygame.Rect((0, 0), size).move_to(
@@ -597,11 +624,14 @@ class YTSearchUI(UIComponent):
         if views is not None:
             self.mili.text_element(
                 views,
-                {"color": (160,) * 3, "size": self.mult(18)},
+                {
+                    "color": (160,) * 3,
+                    "size": self.mult(18 if self.app.split_w > 900 else 16),
+                },
                 None,
                 {"blocking": False},
             )
-        imgsize = self.mult(30)
+        imgsize = self.mult(30 if self.app.split_w > 900 else 25)
         image = self.channel_covers.get(video.channel_id, None)
         if image is None:
             image = ICONS.account
@@ -631,7 +661,7 @@ class YTSearchUI(UIComponent):
                 video.channel if video.channel else "<Unknown Channel>",
                 {
                     "color": (cond(self.app, hit, 200, 255, 180),) * 3,
-                    "size": self.mult(17),
+                    "size": self.mult(17 if self.app.split_w > 900 else 15),
                 },
                 None,
                 {"align": "center", "blocking": False},
@@ -689,7 +719,7 @@ class YTSearchUI(UIComponent):
         elif n >= 1_000:
             n = round(n / 1000, 3)
             suffix = "K"
-        return f"{n:,}{suffix} Views"
+        return f"{n:,}{suffix}{' Views' if self.app.split_w > 600 else ''}"
 
     def open_video_menu(self, video):
         self.app.open_menu(
@@ -740,7 +770,7 @@ class YTSearchUI(UIComponent):
 
     def action_download_thumb(self):
         thread = threading.Thread(
-            target=save_thumbnail_async, args=(self.app.menu_data,), daemon=True
+            target=save_thumbnail_async, args=(self.app.menu_data, self), daemon=True
         )
         thread.start()
         self.app.close_menu()

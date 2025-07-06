@@ -7,8 +7,13 @@ class StateInfoUI(UIComponent):
     def init(self):
         self.anim_close = animation(-5)
         self.cache = mili.ImageCache()
+        self.scroll = mili.Scroll()
+        self.scrollbar = mili.Scrollbar(self.scroll, {"short_size": 7, "axis": "y"})
+        self.sbar_size = self.scrollbar.style["short_size"]
 
     def ui(self):
+        handle_arrow_scroll(self.app, self.scroll, self.scrollbar)
+
         self.mili.id_checkpoint(ID_OFFSET + 230000)
         with self.mili.begin(
             ((0, 0), self.app.split_size),
@@ -19,15 +24,21 @@ class StateInfoUI(UIComponent):
             self.mili.image(
                 SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
             )
-
             with self.mili.begin(
                 (0, 0, 0, 0),
                 {
-                    "fillx": "60" if self.app.split_w > 1500 else "80",
-                    "resizey": True,
+                    "fillx": "60" if self.app.split_w > 1500 else "90",
+                    "filly": "70"
+                    if self.app.music is not None or self.app.split_w < 800
+                    else "50",
                     "align": "center",
                     "spacing": self.mult(13),
-                    "offset": (0, -self.app.tbarh),
+                    "offset": (
+                        0,
+                        (-self.app.music_controls.cont_height / 2)
+                        * (not self.app.split_screen)
+                        - self.app.tbarh / 2,
+                    ),
                     "blocking": None,
                 }
                 | mili.CENTER,
@@ -35,7 +46,7 @@ class StateInfoUI(UIComponent):
                 self.mili.rect({"color": (MODAL_CV,) * 3, "border_radius": "5"})
 
                 self.mili.text_element(
-                    "App State Information",
+                    "State Information",
                     {"size": self.mult(26)},
                     None,
                     mili.CENTER | {"blocking": None},
@@ -43,51 +54,71 @@ class StateInfoUI(UIComponent):
                 with self.mili.begin(
                     None,
                     {
-                        "fillx": "80" if self.app.split_w > 1500 else "95",
-                        "resizey": True,
+                        "fillx": "100",
+                        "filly": True,
                         "pad": 0,
                         "spacing": 0,
                     }
                     | mili.CENTER,
-                ):
+                ) as cont:
+                    self.scroll.update(cont)
+                    self.scrollbar.style["short_size"] = self.mult(self.sbar_size)
+                    self.scrollbar.update(cont)
+                    self.ui_scrollbar()
                     app = self.app
                     self.ui_column("Volume", app.volume)
-                    self.ui_column("Music Playing", app.music is not None, boolean=True)
+                    self.ui_column(
+                        "Music Name",
+                        parse_music_stem(app, app.music.realstem)
+                        if app.music is not None
+                        else "Not playing",
+                        active=app.music is not None,
+                    )
                     self.ui_column("Shuffle Playlist", app.shuffle, boolean=True)
                     self.ui_column("Playlist Loops", app.loops, boolean=True)
                     if app.music is not None:
-                        self.ui_column("Music Name", app.music.realname)
                         self.ui_column("Music Paused", app.music_paused, boolean=True)
                         self.ui_column("Music Loops", app.music_loops, boolean=True)
-                        self.ui_column("Music Timestamp", f"{app.get_music_pos():.2f}")
+                        mpos = app.get_music_pos()
+                        duration = ""
+                        if isinstance(app.music.duration, float):
+                            duration = f" ({format_music_time(mpos, app.music.duration)} | {(mpos / app.music.duration) * 100:.2f}%)"
+                        self.ui_column("Music Timestamp", f"{mpos:.2f}{duration}")
                         self.ui_column(
                             "Music Is Video", app.music.isvideo, boolean=True
                         )
                         if app.music.isvideo:
                             frame = self.app.music_controls.async_videoclip
-                            if frame.original_size is not None:
+                            if frame.videoclip is not None:
+                                if frame.original_size is not None:
+                                    self.ui_column(
+                                        "Video Resolution",
+                                        f"{int(frame.videoclip.size[0])}x{int(frame.videoclip.size[1])}/{int(frame.original_size.x)}x{int(frame.original_size.y)} px",
+                                    )
+                                if isinstance(self.app.music.duration, float):
+                                    frames = int(
+                                        self.app.music.duration * frame.videoclip.fps
+                                    )
+                                    frameno = int(
+                                        frames * (mpos / self.app.music.duration)
+                                    )
+                                    self.ui_column("Video Frame", f"{frameno}/{frames}")
                                 self.ui_column(
-                                    "Video Source Resolution",
-                                    f"{int(frame.original_size.x)}x{int(frame.original_size.y)} px",
+                                    "Video Thread Framerate",
+                                    (
+                                        "Music paused"
+                                        if app.music_paused
+                                        else f"{frame.current_fps:.2f}/{frame.videoclip.fps:.0f} FPS"
+                                    )
+                                    if app.videoclip_threaded
+                                    else "Not multithreaded",
+                                    app.videoclip_threaded and not app.music_paused,
                                 )
-                            self.ui_column(
-                                "Video Playing Resolution",
-                                f"{int(frame.videoclip.size[0])}x{int(frame.videoclip.size[1])} px,",
-                            )
-                            self.ui_column(
-                                "Video Thread Framerate",
-                                f"{frame.current_fps:.2f}"
-                                if app.videoclip_threaded
-                                else "Not multithreaded",
-                                app.videoclip_threaded,
-                            )
-                            self.ui_column(
-                                "Video Source Framerate",
-                                f"{frame.videoclip.fps:.0f}",
-                            )
-                    self.ui_column("User Framerate", app.user_framerate)
-                    self.ui_column("Target Framerate", app.target_framerate)
-                    self.ui_column("Current Framerate", f"{app.clock.get_fps():.2f}")
+                    self.ui_column("User Framerate", f"{app.user_framerate} FPS")
+                    self.ui_column(
+                        "Current Framerate",
+                        f"{app.clock.get_fps():.2f}/{app.target_framerate} FPS",
+                    )
                     self.ui_column("Videoclip On", app.videoclip_on, boolean=True)
                     self.ui_column(
                         "Videoclip Threaded", app.videoclip_threaded, boolean=True
@@ -102,6 +133,9 @@ class StateInfoUI(UIComponent):
                         boolean=True,
                     )
                     self.ui_column(
+                        "UI Hardware Accelerated", USE_RENDERER, boolean=True
+                    )
+                    self.ui_column(
                         "Last Data Save",
                         f"{(pygame.time.get_ticks() - app.last_save) / 1000:.0f} Seconds Ago",
                     )
@@ -112,11 +146,19 @@ class StateInfoUI(UIComponent):
 
     def ui_column(self, title, value, active=True, boolean=False):
         with self.mili.begin(
-            None, {"fillx": True, "resizey": True, "axis": "x", "pad": 0, "spacing": 0}
+            None,
+            {
+                "fillx": "94",
+                "resizey": True,
+                "axis": "x",
+                "pad": 0,
+                "spacing": 0,
+                "offset": self.scroll.get_offset(),
+            },
         ) as parent:
             self.mili.element(
                 None,
-                {"fillx": "30", "filly": True},
+                {"fillx": "42", "filly": True},
             )
             self.mili.rect(
                 {
@@ -172,6 +214,8 @@ class StateInfoUI(UIComponent):
     def event(self, event):
         if self.app.listening_key:
             return False
+        if event.type == pygame.MOUSEWHEEL:
+            handle_wheel_scroll(event, self.app, self.scroll, self.scrollbar)
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             self.back()
             return True

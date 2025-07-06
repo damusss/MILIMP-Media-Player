@@ -1,7 +1,7 @@
 import pygame
 import typing
 import threading
-from ui.common import parse_music_stem
+from ui.common import *
 
 if typing.TYPE_CHECKING:
     from MILIMP import MILIMP
@@ -21,6 +21,7 @@ def discord_presence_connect(presence: "DiscordPresence"):
     presence.active = True
     presence.connecting = False
     presence.last_update = -9999
+    presence.app.notify(NOTIF.DISCORD, "Discord presence connected")
 
 
 class DiscordPresence:
@@ -139,7 +140,7 @@ class DiscordPresence:
             self.connecting = False
             self.active = False
             self.connect_error = None
-            pygame.display.message_box(
+            messagebox_notify(self.app, NOTIF.DISCORD,
                 "Failed to connect to discord",
                 "The connection with discord took too much time. Make sure you have an internet connection and try to connect again.",
                 "error",
@@ -149,7 +150,7 @@ class DiscordPresence:
 
     def show_error(self):
         if self.discord_not_found:
-            pygame.display.message_box(
+            messagebox_notify(self.app, NOTIF.DISCORD,
                 "Failed to connect to discord",
                 "Discord must be installed and running for the discord presence to work.",
                 "error",
@@ -157,7 +158,7 @@ class DiscordPresence:
                 ("Understood",),
             )
         else:
-            pygame.display.message_box(
+            messagebox_notify(self.app, NOTIF.DISCORD,
                 "Failed to connect to discord",
                 f"The module 'pypresence' raised this exception while trying to connect to discord: '{
                     self.connect_error
@@ -176,6 +177,7 @@ class DiscordPresence:
         if self.pypresence is None:
             return
         self.presence.close()
+        self.app.notify(NOTIF.DISCORD, "Discord presence disconnected")
 
     def toggle(self):
         if self.active:

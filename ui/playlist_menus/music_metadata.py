@@ -87,7 +87,7 @@ class MusicMetadataUI(UIComponent):
                     if isinstance(self.music.duration, float):
                         duration = (
                             format_music_time(self.music.duration)
-                            + f" ({self.music.duration} seconds)"
+                            + f" ({self.music.duration:.2f} seconds)"
                         )
                     else:
                         duration = "Unknown"
@@ -106,19 +106,34 @@ class MusicMetadataUI(UIComponent):
                         if self.music.filesize > LARGE_MEDIA_SIZE:
                             extra = " (Heavy File)"
                         sourceres = "N/D"
+
                         if (
                             self.music.video_size is NotCached
                             or self.music.video_fps is NotCached
                         ):
-                            self.music.cache_video_metadata()
+                            if (
+                                self.music is self.app.music
+                                and self.app.music_controls.async_videoclip is not None
+                                and self.app.music_controls.async_videoclip.videoclip
+                                is not None
+                            ):
+                                self.music.video_size = self.app.music_controls.async_videoclip.original_size
+                                self.music.video_fps = self.app.music_controls.async_videoclip.videoclip.fps
+                            else:
+                                self.music.cache_video_metadata()
                         if self.music.video_size is not None:
                             sourceres = f"{int(self.music.video_size[0])}x{int(self.music.video_size[1])} px"
                         sourcefps = "N/D"
+                        frameno = "N/D"
                         if self.music.video_fps is not None:
                             sourcefps = f"{int(self.music.video_fps)} FPS"
+                            if isinstance(self.music.duration, float):
+                                frameno = (
+                                    f"{int(self.music.duration * self.music.video_fps)}"
+                                )
                         self.ui_metadata_column(
                             "Video Metadata",
-                            f"Source Resolution: {sourceres}, Source Framerate: {sourcefps}, File Size: {self.music.filesize} Bytes {extra}",
+                            f"Source Resolution: {sourceres}, Source Framerate: {sourcefps}, File Size: {self.music.filesize} Bytes {extra}, Frames: {frameno}",
                         )
                     else:
                         self.ui_metadata_column("Video Metadata", "Not a video", False)

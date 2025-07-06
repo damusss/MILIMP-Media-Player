@@ -252,9 +252,6 @@ class PlaylistViewerUI(UIComponent):
                 "axis": "x",
                 "align": "center",
                 "anchor": "center",
-                # "resizey": {
-                #    "min": self.mult(40),
-                # },
                 "size_clamp": {"min": (None, self.mult(40))},
                 "spacing": -self.mult(3),
             },
@@ -557,9 +554,9 @@ class PlaylistViewerUI(UIComponent):
                     if mit := self.mili.element(None, {"fillx": True, "filly": True}):
                         self.ui_music_bg(mit, music)
                         is_current = False
+                        if not music.loaded_cover and music.cover_path is not None:
+                            music.load_cover_async(music.cover_path, ICONS.loading)
                         cover = music.cover_or(ICONS.music_cover)
-                        if cover is None:
-                            cover = ICONS.music_cover
                         if (
                             music is self.app.music
                             and self.app.music_controls.music_videoclip_cover
@@ -639,22 +636,15 @@ class PlaylistViewerUI(UIComponent):
                             ICONS.playbars,
                             {"cache": get_img_cache()},
                         )
+                if not music.loaded_cover and music.cover_path is not None:
+                    music.load_cover_async(music.cover_path, ICONS.loading)
                 cover = music.cover_or(ICONS.music_cover)
                 is_current = False
-                if cover is None:
-                    cover = ICONS.music_cover
-                use_videoclip = (
-                    music is self.app.music
-                    and music.isvideo
-                    and self.app.music_controls.async_videoclip is not None
-                    and not self.app.music_controls.async_videoclip.is_large_media
-                )
                 if (
                     music is self.app.music
                     and self.app.music_controls.music_videoclip_cover is not None
                     and self.app.focused
                     and self.app.music
-                    and use_videoclip
                 ):
                     cover = self.app.music_controls.music_videoclip_cover
                     is_current = True
@@ -831,12 +821,15 @@ class PlaylistViewerUI(UIComponent):
             try:
                 img = pygame.image.load(pathlib.Path(path).resolve()).convert_alpha()
                 music.cover = img
+                music.loaded_cover = True
                 pygame.image.save(
                     img,
                     f"data/music_covers/{self.playlist.name}_{music.realstem}.png",
                 )
             except Exception as e:
-                pygame.display.message_box(
+                messagebox_notify(
+                    self.app,
+                    NOTIF.ERROR,
                     "Error loading cover image",
                     f"The cover could not be loaded for an unexpected error: '{e}'",
                     "error",
@@ -899,7 +892,9 @@ class PlaylistViewerUI(UIComponent):
         try:
             audiofile = moviepy.AudioFileClip(str(music.realpath))
         except Exception as exc:
-            pygame.display.message_box(
+            messagebox_notify(
+                self.app,
+                NOTIF.ERROR,
                 "Could not convert music",
                 f"Could not convert '{music.realpath}' to MP3 due to external exception: '{exc}'.",
                 "error",
@@ -920,7 +915,9 @@ class PlaylistViewerUI(UIComponent):
         music.playlist.musictable.pop(music.realpath)
         music.playlist.musictable[music.audiopath] = music
         thread = threading.Thread(
-            target=convert_music_async, args=(music, audiofile, new_path), daemon=True
+            target=convert_music_async,
+            args=(music, audiofile, new_path, self.app),
+            daemon=True,
         )
         thread.start()
 
@@ -938,9 +935,14 @@ class PlaylistViewerUI(UIComponent):
         self.modal_state = "add"
 
     def back(self):
+        for music in self.playlist.musiclist:
+            if music is self.app.music:
+                continue
+            music.loading_cover = False
+            music.loaded_cover = False
+            music.cover = None
         self.app.change_state("list")
         self.scroll.set_scroll(0, 0)
-        # self.scrollbar.scroll_moved()
 
     def action_rename(self):
         self.modal_state = "rename"
@@ -1008,6 +1010,10 @@ class PlaylistViewerUI(UIComponent):
                 mp3_path = f"data/mp3_converted/{self.playlist.name}_{self.app.menu_data.realstem}.mp3"
                 if os.path.exists(mp3_path):
                     os.remove(mp3_path)
+            self.app.notify(
+                NOTIF.INFO,
+                f"Track {self.app.menu_data.realpath} removed from the playlist",
+            )
         except Exception:
             pass
         self.app.close_menu()
@@ -1034,6 +1040,9 @@ class PlaylistViewerUI(UIComponent):
                 musictochangeindex
             )
         self.playlist.groups.remove(self.app.menu_data)
+        self.app.notify(
+            NOTIF.INFO, f"Playlist group {self.app.menu_data.name} removed successfully"
+        )
         self.app.close_menu()
 
     def action_start_playing(self, music: MusicData):

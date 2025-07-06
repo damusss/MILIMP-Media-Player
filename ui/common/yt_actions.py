@@ -34,10 +34,14 @@ def get_playlist_name_async(playlist_ui: "YTPlaylistUI"):
             "title", playlist_ui.playlist_url.split("playlist?list=")[-1]
         )
     except subprocess.CalledProcessError as e:
-        playlist_ui.error = f"subprocess error: '{e.output}'"
+        playlist_ui.error = notify_error(
+            playlist_ui.app, f"subprocess error: '{e.output}'", hidden=True
+        )
         return
     except Exception as e:
-        playlist_ui.error = f"unexpected error: '{e}'"
+        playlist_ui.error = notify_error(
+            playlist_ui.app, f"unexpected error: '{e}'", hidden=True
+        )
         return
 
 
@@ -73,7 +77,9 @@ def download_thumbail_async(video: "YTVideoResult", ui: "YTSearchUI", error_img)
         pygame.error,
         ValueError,
     ) as e:
-        print(f"Could not download '{video.thumb_url}': '{e}'")
+        notify_error(
+            ui.app, f"Could not download '{video.thumb_url}': '{e}'", hidden=True
+        )
         ui.downloading_thumbs.remove(video.thumbnail)
         ui.thubnails[video.thumbnail] = error_img
 
@@ -90,18 +96,28 @@ def download_channel_quick_async(video: "YTVideoResult", ui: "YTSearchUI", error
         pygame.error,
         ValueError,
     ) as e:
-        print(f"Could not download profile picture of '{video.channel_url}': '{e}'")
+        notify_error(
+            ui.app,
+            f"Could not download profile picture of '{video.channel_url}': '{e}'",
+            hidden=True,
+        )
+
         ui.downloading_channels.remove(video.channel_id)
         ui.channel_covers[video.channel_id] = error_img
 
 
-def save_thumbnail_async(video: "YTVideoResult"):
+def save_thumbnail_async(video: "YTVideoResult", ui: "YTSearchUI"):
     try:
         filename = f"data/yt_downloads/thumbnail_{video.title_fn}.png"
         get_yt_image_async(filename, video.hd_thumb_url)
-        print(f"Downloaded thumbnail to '{filename}'")
-    except (urllib.error.URLError, urllib.error.HTTPError, pygame.error, ValueError):
-        ...
+        ui.app.notify(NOTIF.DOWNLOAD, f"Downloaded thumbnail to '{filename}'")
+    except (
+        urllib.error.URLError,
+        urllib.error.HTTPError,
+        pygame.error,
+        ValueError,
+    ) as e:
+        notify_error(f"Could not save thumbnail {video.hd_thumb_url}: {e}")
 
 
 def download_channel_async(video: "YTVideoResult", ui: "YTSearchUI", error_img):
@@ -109,8 +125,10 @@ def download_channel_async(video: "YTVideoResult", ui: "YTSearchUI", error_img):
         download_channel_quick_async(video, ui, error_img)
         return
     if video.channel_id == "NA":
-        print(
-            f"Could not download profile picture of '{video.channel_url}' because the channel ID is unknown"
+        notify_error(
+            ui.app,
+            f"Could not download profile picture of '{video.channel_url}' because the channel ID is unknown",
+            hidden=True,
         )
         ui.downloading_channels.remove(video.channel_id)
         ui.channel_covers[video.channel_id] = error_img
@@ -130,7 +148,11 @@ def download_channel_async(video: "YTVideoResult", ui: "YTSearchUI", error_img):
         ui.downloading_channels.remove(video.channel_id)
         ui.channel_covers[video.channel_id] = image
     except (pygame.error,) as e:
-        print(f"Could not download profile picture of '{video.channel_url}': '{e}'")
+        notify_error(
+            ui.app,
+            f"Could not download profile picture of '{video.channel_url}': '{e}'",
+            hidden=True,
+        )
         ui.downloading_channels.remove(video.channel_id)
         ui.channel_covers[video.channel_id] = error_img
 
@@ -141,7 +163,7 @@ def search_videos_fast_async(ui: "YTSearchUI", query):
             "result"
         ]
     except Exception as e:
-        ui.search_error = f"unexpected error: '{e}'"
+        ui.search_error = notify_error(ui.app, f"unexpected error: '{e}'")
         ui.searching = False
         ui.searching_more = False
     if ui.search_canceled:
@@ -190,6 +212,7 @@ def search_videos_fast_async(ui: "YTSearchUI", query):
     ui.searching = False
     ui.searched = True
     ui.searching_more = False
+    ui.last_search = query
     if len(ui.video_results) < ui.fetch_amount:
         ui.fetch_amount = len(ui.video_results)
 
@@ -209,12 +232,14 @@ def search_videos_ytdlp_async(ui: "YTSearchUI", query):
             command, creationflags=SUBPROCESS_FLAGS
         ).decode(errors="replace")
     except subprocess.CalledProcessError as e:
-        ui.search_error = f"subprocess error: '{e.output}'"
+        ui.search_error = notify_error(
+            ui.app, f"subprocess error: '{e.output}'", hidden=True
+        )
         ui.searching = False
         ui.searching_more = False
         return
     except Exception as e:
-        ui.search_error = f"unexpected error: '{e}'"
+        ui.search_error = notify_error(ui.app, f"unexpected error: '{e}'", hidden=True)
         ui.searching = False
         ui.searching_more = False
         return
@@ -249,12 +274,13 @@ def search_videos_ytdlp_async(ui: "YTSearchUI", query):
             print(f"Search Result: {title} {data}")
             res.append(video)
         except Exception as e:
-            print(f"SEARCH ERROR: {e}")
+            notify_error(ui.app, f"SEARCH ERROR: {e}", hidden=True)
             continue
     ui.video_results = res
     ui.searching = False
     ui.searched = True
     ui.searching_more = False
+    ui.last_search = query
 
 
 def check_ffmpeg():
@@ -295,8 +321,9 @@ def download_yt_default_async(
     print(f"EXECUTING FOREIGN COMMAND <{command}>")
     try:
         subprocess.run(command, creationflags=SUBPROCESS_FLAGS)
-    except subprocess.CalledProcessError:
-        ...
+        ui.app.notify(NOTIF.DOWNLOAD, f"Video downloaded succesfully at '{filename}'")
+    except subprocess.CalledProcessError as e:
+        notify_error(ui.app, str(e))
     ui.downloading -= 1
 
 
@@ -316,8 +343,9 @@ def download_yt_async(
     print(f"EXECUTING FOREIGN COMMAND <{command}>")
     try:
         subprocess.run(command, creationflags=SUBPROCESS_FLAGS)
-    except subprocess.CalledProcessError:
-        ...
+        ui.app.notify(NOTIF.DOWNLOAD, f"Video downloaded succesfully at '{filename}'")
+    except subprocess.CalledProcessError as e:
+        notify_error(ui.app, str(e))
     if not internal:
         ui.downloading -= 1
 
@@ -330,8 +358,9 @@ def download_playlist_async(ui: "YTPlaylistUI"):
     print(f"EXECUTING FOREIGN COMMAND <{command}>")
     try:
         subprocess.run(command, creationflags=SUBPROCESS_FLAGS)
-    except subprocess.CalledProcessError:
-        ...
+        ui.app.notify(NOTIF.DOWNLOAD, f"Playlist downloaded succesfully at '{folder}'")
+    except subprocess.CalledProcessError as e:
+        notify_error(ui.app, str(e))
     ui.parent.downloading_playlist = None
 
 
@@ -363,6 +392,10 @@ def merge_yt_async(
             command = f'ffmpeg -i "{newin}" -c:v libx264 -preset medium -crf 20 -c:a aac -b:a 192k "{filename}"'
             print(f"EXECUTING FOREIGN COMMAND <{command}>")
             subprocess.run(command, creationflags=SUBPROCESS_FLAGS)
+            ui.app.notify(
+                NOTIF.DOWNLOAD,
+                f"Video downloaded and merged succesfully at '{filename}'",
+            )
         except subprocess.CalledProcessError:
             delete_yt_if_exists(filename)
     except subprocess.CalledProcessError:
@@ -380,7 +413,7 @@ def get_yt_formats_async(ui: "YTSearchUI", dui: "YTDownloadUI", video: "YTVideoR
             command, creationflags=SUBPROCESS_FLAGS
         ).decode(errors="replace")
     except subprocess.CalledProcessError as e:
-        dui.error = f"subprocess error: '{e}'"
+        dui.error = notify_error(ui.app, f"subprocess error: '{e}'", hidden=True)
         dui.formats = []
         dui.getting_formats = False
         return

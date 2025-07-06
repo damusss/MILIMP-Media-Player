@@ -1,7 +1,7 @@
 import mili
 import pygame
 import functools
-from ui.common import Keybinds
+from ui.common import Keybinds, USE_RENDERER
 
 
 class CursorComponent(mili.typing.ComponentProtocol):
@@ -19,12 +19,19 @@ class CursorComponent(mili.typing.ComponentProtocol):
         xpos = absolute_rect.x + csize - offset + 5
         if offset != 0:
             xpos += 5
-        pygame.draw.line(
-            ctx._canva,
-            (255,) * 3,
-            (xpos, absolute_rect.y + absolute_rect.h / 2 - curs / 2),
-            (xpos, absolute_rect.y + absolute_rect.h / 2 + curs / 2),
-        )
+        if USE_RENDERER:
+            ctx._canva._draw_line(
+                (255,) * 3,
+                (xpos, absolute_rect.y + absolute_rect.h / 2 - curs / 2),
+                (xpos, absolute_rect.y + absolute_rect.h / 2 + curs / 2),
+            )
+        else:
+            pygame.draw.line(
+                ctx._canva._surface,
+                (255,) * 3,
+                (xpos, absolute_rect.y + absolute_rect.h / 2 - curs / 2),
+                (xpos, absolute_rect.y + absolute_rect.h / 2 + curs / 2),
+            )
 
 
 class UIEntryline:

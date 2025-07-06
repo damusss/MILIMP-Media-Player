@@ -8,8 +8,9 @@ import subprocess
 
 if typing.TYPE_CHECKING:
     from MILIMP import MILIMP
+    from ui.state import MusicState
 
-DEV_VERSION = 37
+DEV_VERSION = 38
 PREFERRED_SIZES = (415, 700)
 MINIP_PREFERRED_SIZES = 200, 200
 UI_SIZES = (480, 720)
@@ -82,6 +83,7 @@ ID_OFFSET = 5000
 ID_POST_OFFSET = 500000
 LARGE_MEDIA_SIZE = 900000000
 SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if getattr(sys, "frozen", False) else 0
+RUNNING_INSTANCE_SENTINEL = "__runninginstance__"
 THUMBNAILS = {
     "120x90": "",
     "320x180": "mq",
@@ -90,12 +92,23 @@ THUMBNAILS = {
     "1920x1080": "maxres",
 }
 INFO = """MILIMP uses the pygame.mixer.music module to play audio (which uses SDL_mixer). That library can only play audio files, meaning that if you load a video inside the media player, it will be converted to an audio file. That process is usually pretty fast but can take quite some time if the video file is very large. The library used to convert formats is moviepy which uses ffmpeg under the hood.
+
 The youtube search/download interface is performed by the yt-dlp library. That library is an external tool that needs to be installed and added to PATH. Any operation network related is handled by yt-dlp using threaded subprocesses that happen in the background. Check the terminal to see detailed information. Every foreign command can take an arbitrary amount of time to be completed.
+
 The ability to stream video frames in the application is not possible with pygame. Moviepy is used again, which uses ffmpeg. Extracting frames is generally a slow operation - it's possible for it to be smooth thanks to ffmpeg ability to manage sequential frames. This means that quickly jumping to a different music position won't be as smooth and ffmpeg will need to adjust to the new position. This process can take a small time or be noticeable depending on how heavy the video is.
+
 Usually, the frame extraction is performed on a different thread. This means that for most videos the app will remain at a very high framerate and the video won't slow it down. If the video is heavy (big file size or high resolution), some lag might occur when starting it or jumping positions because the video thread has less CPU power to work with. A heavy video will probably lag if many UI menus are open inside the application as the main thread will steal too much power.
-By default, if a video's size is larger than the monitor, the ffmpeg target resolution is reduced to match the monitor. If a video is larger than 900 Megabytes the media is considered "heavy". In that case the resolution will be kept but the nearest neighbor scaling alogorithm will be used. If the video is multithreaded the fast bilinear algorithm is used and the video is scaled down by 1.5x (compared to the monitor's size)
+
+By default, if a video's size is larger than the monitor, the ffmpeg target resolution is reduced to match the monitor. If a video is larger than 900 Megabytes the media is considered "heavy". In that case the resolution will be kept but the nearest neighbor scaling alogorithm will be used. If the video is multithreaded the fast bilinear algorithm is used and the video is scaled down by 1.5x (compared to the monitor's size). If hardware acceleration is enabled, the scaling is less severe (1.2x)
+
 You can disable video multithreading at any time in the settings. This is not advised for small videos, but might be benefitial for heavy ones, because the frame extraction happens on the same thread and has all the CPU power it needs (reducing the app's framerate). No multithreading will eliminate lag and is probably the best choice for very heavy videos.
+
+If, with multithreading, the video file is considered heavy or if it keeps lagging regardless of optimizations the app's FPS are lowered to 30 to allow the frame extraction to use more power.
 """
+USE_RENDERER = True
+if os.path.exists("data/gpu.json"):
+    with open("data/gpu.json", "r") as file:
+        USE_RENDERER = json.load(file)
 
 
 def get_img_cache():
@@ -195,10 +208,27 @@ def format_music_time(position, duration=None):
     return string
 
 
+def messagebox_notify(
+    app: "MILIMP", icon, title, message, message_type, *args, **kwargs
+):
+    app.notify(icon, title + ". " + message, message_type == "error")
+    pygame.display.message_box(title, message, message_type, *args, **kwargs)
+
+
+def notify_error(app: "MILIMP", message, kind=None, hidden=False):
+    if kind is None:
+        kind = NOTIF.PROCESS
+    app.notify(kind, message, True, hidden)
+    return message
+
+
 class UIComponent:
+    TOP_BTN_START_POS = {}
+
     def __init__(self, app: "MILIMP"):
         self.app = app
         self.mili: mili.MILI = app.mili
+        self.state: "MusicState" = app.state
         self.init()
 
     def init(self): ...
@@ -210,6 +240,26 @@ class UIComponent:
             return int(size * self.app.ui_mult)
         return max(0, int(size * self.app.ui_mult))
 
+    def ui_scrollbar(self):
+        self.scrollbar: mili.Scrollbar
+        if self.scrollbar.needed:
+            with self.mili.begin(
+                self.scrollbar.bar_rect, self.scrollbar.bar_style | {"blocking": None}
+            ):
+                self.mili.rect({"color": (BSBAR_CV,) * 3})
+                if handle := self.mili.element(
+                    self.scrollbar.handle_rect, self.scrollbar.handle_style
+                ):
+                    self.mili.rect(
+                        {"color": (cond(self.app, handle, *SHANDLE_CV) * 1.2,) * 3}
+                    )
+                    self.scrollbar.update_handle(handle)
+                    if (
+                        handle.hovered or handle.unhover_pressed
+                    ) and self.app.can_interact():
+                        self.app.cursor_hover = True
+                        self.app.tick_tooltip(None)
+
     def ui_image_btn(
         self,
         image,
@@ -218,6 +268,7 @@ class UIComponent:
         size=62,
         br="50",
         tooltip=None,
+        imgpad=0,
     ):
         if it := self.mili.element(
             (0, 0, self.mult(size), self.mult(size)),
@@ -238,7 +289,9 @@ class UIComponent:
                 {
                     "smoothscale": True,
                     "cache": get_img_cache(),
-                    "pad": self.mult(anim.value, False) + self.mult(3),
+                    "pad": self.mult(anim.value, False)
+                    + self.mult(3)
+                    + self.mult(imgpad),
                 },
             )
             if self.app.can_interact():
@@ -262,59 +315,50 @@ class UIComponent:
         image,
         side=0,
         tooltip=None,
-        nosplitscreen=False,
-        leftmult=0,
+        x_side="right",
     ):
-        size = self.mult(40 if nosplitscreen else 50)
-        offset = self.mult(5 if nosplitscreen else 8)
+        size = self.mult(50)
+        offset = self.mult(8)
         xoffset = offset * 0.6
-        if (
-            self.app.modal_state == "none"
-            and not nosplitscreen
-            and (
-                (
-                    self.app.view_state == "list"
-                    and self.app.list_viewer.scrollbar.needed
-                    and self.app.list_viewer.modal_state == "none"
-                )
-                or (
-                    self.app.view_state == "playlist"
-                    and self.app.playlist_viewer.scrollbar.needed
-                    and self.app.playlist_viewer.modal_state == "none"
-                )
-                or (
-                    self.app.view_state == "search"
-                    and self.app.yt_search.scrollbar.needed
-                    and self.app.yt_search.modal_state == "none"
-                )
+        if self.app.modal_state == "none" and (
+            (
+                self.app.view_state == "list"
+                and self.app.list_viewer.scrollbar.needed
+                and self.app.list_viewer.modal_state == "none"
+            )
+            or (
+                self.app.view_state == "playlist"
+                and self.app.playlist_viewer.scrollbar.needed
+                and self.app.playlist_viewer.modal_state == "none"
+            )
+            or (
+                self.app.view_state == "search"
+                and self.app.yt_search.scrollbar.needed
+                and self.app.yt_search.modal_state == "none"
             )
         ):
             xoffset = offset * 1.6
-        xoffset += leftmult * size + leftmult * self.mult(5)
-        if nosplitscreen == 2:
-            xoffset = self.app.window.size[0] - self.app.split_w - offset - size
         sideoffset = side * size + side * (offset / 2)
-        winw = self.app.window.size[0] if nosplitscreen else self.app.split_w
         musiccontrolsh = (
-            self.app.music_controls.cont_height
-            if (not self.app.split_screen or nosplitscreen)
-            else 0
+            self.app.music_controls.cont_height if (not self.app.split_screen) else 0
         )
-        extrastyle = {}
-        if nosplitscreen:
-            extrastyle = {"parent_id": 0}
+        hovered = False
         if it := self.mili.element(
             pygame.Rect(0, 0, size, size).move_to(
                 bottomright=(
-                    winw - xoffset,
+                    (
+                        self.app.split_w - xoffset
+                        if x_side == "right"
+                        else offset + size
+                    ),
                     self.app.window.size[1]
-                    - (0 if nosplitscreen else self.app.tbarh)
+                    - self.app.tbarh
                     - offset
                     - musiccontrolsh
                     - sideoffset,
                 )
             ),
-            {"ignore_grid": True, "clip_draw": False} | extrastyle,
+            {"ignore_grid": True, "clip_draw": False, "z": 9999},
         ):
             self.mili.circle(
                 {
@@ -335,6 +379,7 @@ class UIComponent:
                     self.app.cursor_hover = True
                 if it.hovered:
                     self.app.tick_tooltip(tooltip)
+                    hovered = True
                 if it.just_hovered:
                     anim.goto_b()
                 if it.left_just_released:
@@ -344,6 +389,8 @@ class UIComponent:
                 anim.goto_a()
             if not it.absolute_hover and not anim.active and anim.value != anim.a:
                 anim.goto_a()
+        if x_side == "left":
+            return hovered, it.data.rect
 
     def ui_overlay_top_btn(
         self,
@@ -409,6 +456,8 @@ class UIComponent:
                     "pad": self.mult(3 + anim.value),
                 },
             )
+            if it.left_just_pressed:
+                UIComponent.TOP_BTN_START_POS[image] = pygame.mouse.get_pos(True)
             if self.app.can_interact():
                 if it.hovered or it.unhover_pressed:
                     self.app.cursor_hover = True
@@ -417,7 +466,9 @@ class UIComponent:
                 if it.just_hovered:
                     anim.goto_b()
                 if it.left_just_released:
-                    on_action()
+                    ori = UIComponent.TOP_BTN_START_POS.get(image, None)
+                    if pygame.mouse.get_pos(True) == ori:
+                        on_action()
                     anim.goto_a()
             if it.just_unhovered:
                 anim.goto_a()
@@ -486,10 +537,10 @@ class Keybinds:
             "volume_up": Binding(pygame.K_UP, pygame.K_KP8),
             "volume_down": Binding(pygame.K_DOWN, pygame.K_KP2),
             "pause_music": Binding(pygame.K_SPACE, pygame.K_KP_ENTER),
-            "previous_track": Binding(pygame.K_LEFT, pygame.K_KP4),
-            "next_track": Binding(pygame.K_RIGHT, pygame.K_KP6),
-            "back_5_s": Binding(pygame.K_LEFT, pygame.K_KP4, ctrl=True),
-            "skip_5_s": Binding(pygame.K_RIGHT, pygame.K_KP6, ctrl=True),
+            "previous_track": Binding(pygame.K_LEFT, pygame.K_KP4, ctrl=True),
+            "next_track": Binding(pygame.K_RIGHT, pygame.K_KP6, ctrl=True),
+            "back_5_s": Binding(pygame.K_LEFT, pygame.K_KP4),
+            "skip_5_s": Binding(pygame.K_RIGHT, pygame.K_KP6),
             "quit": Binding(pygame.K_q, ctrl=True),
             "new/add": Binding(pygame.K_a, ctrl=True),
             "save": Binding(pygame.K_s, ctrl=True),
@@ -602,8 +653,29 @@ class Icons:
         self.ratio = load_icon("ratio")
         self.t_one = load_icon("t_one")
         self.t_two = load_icon("t_two")
-        self.video_on = load_icon("video_on")
         self.video_off = load_icon("video_off")
+        self.save_frame = load_icon("save_frame")
+        self.log = load_icon("log")
+        self.data_save = load_icon("data_save")
+        self.cpu = load_icon("cpu")
+        self.download_done = load_icon("download_done")
+        self.hidden = load_icon("hidden")
+        self.shown = load_icon("shown")
+        self.gpuon = load_icon("gpuon")
+        self.gpuoff = load_icon("gpuoff")
+
+
+class NOTIF:
+    DATA = ("data_save", "Data saved correctly")
+    FPS = (
+        "fps30",
+        "App's target framerate temporarily reduced to 30 FPS to avoid lag on the current track.",
+    )
+    DISCORD = "discordon"
+    PROCESS = "cpu"
+    DOWNLOAD = "download_done"
+    INFO = "infoon"
+    ERROR = "error"
 
 
 ICONS = Icons()

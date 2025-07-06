@@ -30,7 +30,7 @@ class HistoryUI(UIComponent):
             with self.mili.begin(
                 (0, 0, 0, 0),
                 {
-                    "fillx": "90",
+                    "fillx": "70" if self.app.split_w > 1200 else "90",
                     "filly": "75",
                     "align": "center",
                     "spacing": self.mult(13),
@@ -96,25 +96,6 @@ class HistoryUI(UIComponent):
 
         self.mili.element((0, 0, 0, self.mult(4)), {"blocking": None})
 
-    def ui_scrollbar(self):
-        if self.scrollbar.needed:
-            with self.mili.begin(
-                self.scrollbar.bar_rect, self.scrollbar.bar_style | {"blocking": None}
-            ):
-                self.mili.rect({"color": (BSBAR_CV,) * 3})
-                if handle := self.mili.element(
-                    self.scrollbar.handle_rect, self.scrollbar.handle_style
-                ):
-                    self.mili.rect(
-                        {"color": (cond(self.app, handle, *SHANDLE_CV) * 1.2,) * 3}
-                    )
-                    self.scrollbar.update_handle(handle)
-                    if (
-                        handle.hovered or handle.unhover_pressed
-                    ) and self.app.can_interact():
-                        self.app.cursor_hover = True
-                        self.app.tick_tooltip(None)
-
     def ui_history(self, history: HistoryData, parent_rect):
         if history.duration == "not cached" and history.music.pos_supported:
             history.music.cache_duration()
@@ -179,6 +160,8 @@ class HistoryUI(UIComponent):
             )
 
     def ui_history_title(self, history: HistoryData):
+        if not history.music.loaded_cover and history.music.cover_path is not None:
+            history.music.load_cover_async(history.music.cover_path, ICONS.loading)
         cover = history.music.cover
         if cover is None:
             cover = ICONS.music_cover

@@ -1,5 +1,6 @@
 import mili
 import pygame
+from pygame._sdl2 import video as pgvideo
 from ui.common import *
 
 
@@ -8,7 +9,7 @@ class MiniplayerUI:
         self.app = app
         self.window = None
         self.focused = False
-        self.mili = mili.MILI(None, True)
+        self.mili = mili.MILI(mili.SurfaceCanva(pygame.Surface((10, 10))), True)
         self.press_pos = pygame.Vector2()
         self.rel_pos = pygame.Vector2()
         self.last_pressed = False
@@ -60,9 +61,15 @@ class MiniplayerUI:
                 resizable=True,
                 borderless=self.last_borderless,
             )
+        if USE_RENDERER:
+            canva = pgvideo.Renderer(self.window)
+        else:
+            canva = self.window.get_surface()
+        self.mili.canva = canva
         self.window.always_on_top = True
         self.window.minimum_size = (100, 100)
-        self.window.get_surface()
+        if not USE_RENDERER:
+            self.window.get_surface()
         self.window.set_icon(ICONS.music_cover)
         try:
             self.window.flash(pygame.FLASH_BRIEFLY)
@@ -71,6 +78,7 @@ class MiniplayerUI:
         self.focused = True
         self.mouse_data = []
         self.custom_borders.window = self.window
+        self.resize_ratio()
 
     def action_toggle_border(self):
         if not self.window.borderless:
@@ -253,6 +261,7 @@ class MiniplayerUI:
             self.app.music_controls.async_videoclip is not None
             and self.app.music_controls.music_videoclip_cover is not None
             and not self.app.music_paused
+            and not USE_RENDERER
         )
         if self.app.music_controls.music_videoclip_cover:
             cover = self.app.music_controls.music_videoclip_cover
@@ -390,9 +399,12 @@ class MiniplayerUI:
         if self.window is None:
             return
 
-        surf = self.window.get_surface()
-        self.mili.canva = surf
-        surf.fill("black")
+        if self.mili.canva.backend == "surface":
+            surf = self.window.get_surface()
+            self.mili.canva = surf
+            surf.fill("black")
+        else:
+            self.mili.canva._clear("black", self.window)
 
         self.mili.start(
             {
@@ -409,4 +421,4 @@ class MiniplayerUI:
             return
 
         self.mili.update_draw()
-        self.window.flip()
+        self.mili.canva._flip(self.window)

@@ -33,7 +33,7 @@ class ChangeCoverUI(UIComponent):
             with self.mili.begin(
                 (0, 0, 0, 0),
                 {
-                    "fillx": "80",
+                    "fillx": "50" if self.app.split_w > 1200 else "80",
                     "resizey": True,
                     "align": "center",
                     "offset": (0, -self.app.tbarh),

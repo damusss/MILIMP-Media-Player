@@ -18,6 +18,7 @@ class ListViewerUI(UIComponent):
         self.anim_add_playlist = animation(-5)
         self.anim_search = animation(-5)
         self.anim_toggle = animation(-3)
+        self.anim_info = animation(-3)
         self.menu_anims = [animation(-4) for i in range(2)]
 
         self.scroll = mili.Scroll()
@@ -27,15 +28,24 @@ class ListViewerUI(UIComponent):
         self.sbar_size = self.scrollbar.style["short_size"]
 
     def ui_top_buttons(self):
-        if self.app.custom_title or self.app.modal_state == "fullscreen":
+        if self.app.modal_state != "none":
             return
-        self.ui_overlay_top_btn(
-            self.anim_toggle,
-            self.app.toggle_custom_title,
-            ICONS.resize,
-            "left",
-            tooltip="Enable custom borders",
-        )
+        if self.app.custom_title:
+            self.ui_overlay_top_btn(
+                self.anim_info,
+                self.action_info,
+                ICONS.infooff,
+                "left",
+                tooltip="Read technical information",
+            )
+        else:
+            self.ui_overlay_top_btn(
+                self.anim_toggle,
+                self.app.toggle_custom_title,
+                ICONS.resize,
+                "left",
+                tooltip="Enable custom borders",
+            )
 
     def ui_check(self):
         if self.app.modal_state != "none" and self.modal_state != "none":
@@ -111,7 +121,6 @@ class ListViewerUI(UIComponent):
                 2,
                 tooltip="Search from YT Music",
             )
-            self.ui_info_btn()
         elif self.modal_state == "new_playlist":
             self.new_playlist.ui()
         elif self.modal_state == "rename_playlist":
@@ -119,32 +128,17 @@ class ListViewerUI(UIComponent):
         elif self.modal_state == "info":
             self.info.ui()
 
-    def ui_info_btn(self):
-        offset = self.mult(7)
-        size = self.mult(25)
-        with self.mili.element(
-            (offset, offset, size, size), {"ignore_grid": True}
-        ) as element:
-            self.mili.image(
-                ICONS.infooff,
-                {"alpha": cond(self.app, element, 180, 255, 150), "pad": self.mult(2)},
-            )
-            if self.app.can_interact() and element.left_clicked:
-                self.action_info()
-            if element.hovered:
-                self.app.cursor_hover = True
-
     def ui_scrollbar(self):
         if self.scrollbar.needed:
             with self.mili.begin(
                 self.scrollbar.bar_rect, self.scrollbar.bar_style | {"blocking": None}
             ):
-                self.mili.rect({"color": (SBAR_CV,) * 3})
+                self.mili.rect({"color": (BSBAR_CV,) * 3})
                 if handle := self.mili.element(
                     self.scrollbar.handle_rect, self.scrollbar.handle_style
                 ):
                     self.mili.rect(
-                        {"color": (cond(self.app, handle, *SHANDLE_CV),) * 3}
+                        {"color": (cond(self.app, handle, *SHANDLE_CV) * 1.2,) * 3}
                     )
                     self.scrollbar.update_handle(handle)
                     if (
@@ -297,6 +291,9 @@ class ListViewerUI(UIComponent):
                     self.app.end_music()
                 self.app.remove_from_history(music)
             self.app.playlists.remove(self.app.menu_data)
+            self.app.notify(
+                NOTIF.INFO, f"Playlist {self.app.menu_data.name} deleted succesfully"
+            )
         except Exception:
             pass
         self.app.close_menu()

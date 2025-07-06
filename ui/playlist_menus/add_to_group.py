@@ -29,7 +29,7 @@ class AddToGroupUI(UIComponent):
             with self.mili.begin(
                 (0, 0, 0, 0),
                 {
-                    "fillx": "80",
+                    "fillx": "60" if self.app.split_w > 1200 else "80",
                     "filly": "65",
                     "align": "center",
                     "offset": (0, -self.app.tbarh),
@@ -108,25 +108,6 @@ class AddToGroupUI(UIComponent):
                             self.app.tick_tooltip("Add the track to this group")
 
             self.ui_scrollbar()
-
-    def ui_scrollbar(self):
-        if self.scrollbar.needed:
-            with self.mili.begin(
-                self.scrollbar.bar_rect, self.scrollbar.bar_style | {"blocking": None}
-            ):
-                self.mili.rect({"color": (BSBAR_CV,) * 3})
-                if handle := self.mili.element(
-                    self.scrollbar.handle_rect, self.scrollbar.handle_style
-                ):
-                    self.mili.rect(
-                        {"color": (cond(self.app, handle, *SHANDLE_CV) * 1.2,) * 3}
-                    )
-                    self.scrollbar.update_handle(handle)
-                    if (
-                        handle.hovered or handle.unhover_pressed
-                    ) and self.app.can_interact():
-                        self.app.cursor_hover = True
-                        self.app.tick_tooltip(None)
 
     def add(self, group: PlaylistGroup):
         self.music.group = group

@@ -3,6 +3,8 @@ import pygame
 import pathlib
 import threading
 import subprocess
+import datetime
+from pygame._sdl2 import video as pgvideo
 from ui.common import *
 import moviepy
 
@@ -13,8 +15,20 @@ except ImportError:
     webview = None
 
 
+def safeguard_window(arg, position=False):
+    if arg is None:
+        return arg
+    for value in arg:
+        if value <= 0 and not position:
+            return None
+        if value > 100000:
+            return None
+    return arg
+
+
 def load_cover_async(path, obj):
     obj.cover = pygame.image.load(path).convert_alpha()
+    obj.loaded_cover = True
 
 
 def get_cover_async(music: "MusicData", videofile: moviepy.VideoClip, cover_path):
@@ -23,19 +37,60 @@ def get_cover_async(music: "MusicData", videofile: moviepy.VideoClip, cover_path
         surface = pygame.image.frombytes(frame.tobytes(), videofile.size, "RGB")
         pygame.image.save(surface, cover_path)
         music.cover = surface
+        music.loaded_cover = True
     except Exception:
         music.cover = None
 
 
-def convert_music_async(music: "MusicData", audiofile: moviepy.AudioClip, new_path):
+def convert_music_async(
+    music: "MusicData", audiofile: moviepy.AudioClip, new_path, success=None
+):
     try:
         audiofile.write_audiofile(str(new_path))
         music.pending = False
         if music.audio_converting:
             music.converted = True
         music.audio_converting = False
+        if success is not None:
+            success.notify(
+                NOTIF.INFO, f"Track {music.realpath} converted successfully to mp3"
+            )
     except Exception as e:
         music.load_exc = e
+
+
+class Notification:
+    def __init__(self, kind, message, error=False, hidden=False):
+        self.kind = kind
+        self.message = message
+        self.error = error
+        self.hidden = hidden
+        self.time = datetime.datetime.now()
+
+
+class SafeRunningContext:
+    def __init__(self, app: "MILIMP"):
+        self.app = app
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exctype, excval, exctb):
+        if exctype is SystemExit:
+            return
+        if self.app is not None or exctype is not None:
+            if os.path.exists(RUNNING_INSTANCE_SENTINEL):
+                os.remove(RUNNING_INSTANCE_SENTINEL)
+        if exctype is not None:
+            if self.app is not None:
+                self.app.aborted = True
+                self.app.save()
+                async_videoclip = self.app.music_controls.async_videoclip
+                if async_videoclip is not None:
+                    async_videoclip.alive = False
+                    if self.app.videoclip_threaded:
+                        async_videoclip.thread.join()
+            print(f"Application aborted with an exception ({exctype.__name__}).")
 
 
 class YTVideoFormat:
@@ -239,12 +294,23 @@ class AsyncVideoclipGetter:
         self.last_fps_check = pygame.time.get_ticks()
         self.current_fps = 0
         self.original_size = None
+        self.videoclip_scaled = False
+        self.textures = {}
 
     def make_videoclip(self):
+        if self.videoclip is not None:
+            self.videoclip.close()
+        self.videoclip_scaled = False
         filesize = os.path.getsize(self.realpath)
         self.is_large_media = filesize > LARGE_MEDIA_SIZE
         resize = (
-            ("fast_bilinear" if self.app.videoclip_threaded else "neighbor")
+            (
+                "neighbor"
+                if USE_RENDERER
+                else "fast_bilinear"
+                if self.app.videoclip_threaded
+                else "neighbor"
+            )
             if self.is_large_media
             else "bicubic"
         )
@@ -253,7 +319,9 @@ class AsyncVideoclipGetter:
         )
         desktop = self.desktop_size
         if self.is_large_media:
-            desktop = self.desktop_size / (1.5 if self.app.videoclip_threaded else 1)
+            desktop = self.desktop_size / (
+                1.2 if USE_RENDERER else 1.5 if self.app.videoclip_threaded else 1
+            )
         size = pygame.Vector2(self.videoclip.size)
         self.original_size = size
         new_size = None
@@ -283,6 +351,7 @@ class AsyncVideoclipGetter:
                 audio=False,
                 resize_algorithm=resize,
             )
+            self.videoclip_scaled = True
 
     def load_videoclip(self):
         try:
@@ -299,18 +368,22 @@ class AsyncVideoclipGetter:
         if not self.active or self.videoclip is None or self.time is None:
             self.clock.tick(10)
             return
-        if self.app.videoclip_threaded:
+        if (
+            self.app.videoclip_threaded
+            and not self.app.need_low_fps
+            and self.app.user_framerate != 30
+        ):
             self.clock.tick(min(self.videoclip.fps + 5, self.framerate))
             self.current_fps = self.clock.get_fps()
-            if self.app.videoclip_on:
+            if self.app.videoclip_on and len(self.fps_history) < 200:
                 now = pygame.time.get_ticks()
                 if self.current_fps != 0 and now - self.last_fps_check >= 500:
                     self.fps_history.append(self.current_fps)
                     self.last_fps_check = now
-                if len(self.fps_history) > 10:
+                if len(self.fps_history) > 6:
                     average = sum(self.fps_history) / len(self.fps_history)
                     if average < 15:
-                        self.app.remove_videoclip_threading = True
+                        self.app.need_low_fps = True
         if self.app.videoclip_on:
             self.output = pygame.surfarray.make_surface(
                 numpy.transpose(self.videoclip.get_frame(self.time), (1, 0, 2))
@@ -321,9 +394,19 @@ class AsyncVideoclipGetter:
             smallest = float("inf")
             for pad, rect in self.rects:
                 res = mili.fit_image(rect, self.output, pad, pad, smoothscale=True)
+                ores = res
+                if USE_RENDERER:
+                    if rect.size in self.textures:
+                        tex = self.textures[rect.size]
+                        tex.update(res)
+                        res = tex
+                    else:
+                        tex = pgvideo.Texture.from_surface(self.app.canva, res)
+                        self.textures[rect.size] = tex
+                        res = tex
                 self.scaled_output[rect.size] = res
                 if rect.w * rect.h < smallest:
-                    small_output = res
+                    small_output = ores
                     smallest = rect.w * rect.h
             self.small_output = small_output
         else:
@@ -354,6 +437,9 @@ class MusicData:
     video_size: tuple[int, int] | None
     video_fps: float | None
     filesize: int | None
+    loaded_cover: bool
+    loading_cover: bool
+    cover_path: str
 
     @classmethod
     def load(
@@ -377,6 +463,9 @@ class MusicData:
         self.video_size = NotCached
         self.video_fps = NotCached
         self.filesize = None
+        self.loaded_cover = False
+        self.loading_cover = False
+        self.cover_path = None
 
         cover_path = f"data/music_covers/{playlist.name}_{self.realstem}.png"
         if not os.path.exists(realpath):
@@ -396,12 +485,13 @@ class MusicData:
             ).resolve()
 
             if os.path.exists(new_path) and os.path.exists(cover_path):
+                self.cover_path = cover_path
                 self.load_cover_async(cover_path, loading_image, startup=startup)
                 self.audiopath = new_path
                 return self
 
             try:
-                videofile = moviepy.VideoFileClip(str(realpath), audio=False)
+                videofile = moviepy.VideoFileClip(str(realpath))
                 self.video_size = videofile.size
                 self.video_fps = videofile.fps
             except Exception:
@@ -419,6 +509,7 @@ class MusicData:
                     self.pending = True
                     if loading_image is not None:
                         self.cover = loading_image
+                    self.loading_cover = True
                     thread = threading.Thread(
                         target=get_cover_async,
                         args=(self, videofile, cover_path),
@@ -428,6 +519,7 @@ class MusicData:
                 except Exception:
                     self.cover = None
             else:
+                self.cover_path = cover_path
                 self.load_cover_async(cover_path, loading_image, startup=startup)
 
             if os.path.exists(new_path):
@@ -459,6 +551,7 @@ class MusicData:
             ).resolve()
 
             if os.path.exists(cover_path):
+                self.cover_path = cover_path
                 self.load_cover_async(cover_path, loading_image, startup=startup)
             if os.path.exists(new_path):
                 self.audiopath = new_path
@@ -487,6 +580,7 @@ class MusicData:
             return self
         else:
             if os.path.exists(cover_path):
+                self.cover_path = cover_path
                 self.load_cover_async(cover_path, loading_image, startup=startup)
             if self.converted:
                 self.audiopath = pathlib.Path(
@@ -532,15 +626,16 @@ class MusicData:
         return True
 
     def load_cover_async(self, path, loading_image=None, startup=None):
+        if self.loading_cover:
+            return
         if loading_image is not None:
             self.cover = loading_image
         if startup is None:
+            self.loading_cover = True
             thread = threading.Thread(
                 target=load_cover_async, args=(path, self), daemon=True
             )
             thread.start()
-        else:
-            startup.startup_covers_toload.append((self, path))
 
     def cache_duration(self):
         try:

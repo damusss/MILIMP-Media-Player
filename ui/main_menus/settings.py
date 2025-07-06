@@ -10,9 +10,12 @@ class SettingsUI(UIComponent):
         self.anim_close = animation(-5)
         self.anim_handle = animation(-3)
         self.anim_info = animation(-3)
-        self.anims = [animation(-3) for i in range(10)]
+        self.anim_log = animation(-3)
+        self.anims = [animation(-3) for i in range(11)]
         self.cache = mili.ImageCache()
-        self.slider = mili.Slider({"lock_y": True, "handle_size": (10, 10)})
+        self.slider = mili.Slider(
+            {"lock_y": True, "handle_size": (10, 10), "drag_area": False}
+        )
         self.bar_controlled = False
 
     def ui(self):
@@ -30,7 +33,7 @@ class SettingsUI(UIComponent):
             with self.mili.begin(
                 (0, 0, 0, 0),
                 {
-                    "fillx": "80",
+                    "fillx": "50" if self.app.split_w > 1200 else "80",
                     "resizey": True,
                     "align": "center",
                     "spacing": self.mult(13),
@@ -48,6 +51,14 @@ class SettingsUI(UIComponent):
 
     def ui_modal_content(self):
         with self.mili.begin(None, mili.RESIZE | mili.X | mili.CENTER | {"pady": 0}):
+            self.ui_image_btn(
+                ICONS.log,
+                self.action_notifs,
+                self.anim_log,
+                size=30,
+                br="30",
+                tooltip="Show application notification log",
+            )
             self.mili.text_element(
                 "Settings",
                 {"size": self.mult(26)},
@@ -58,8 +69,8 @@ class SettingsUI(UIComponent):
                 ICONS.infooff,
                 self.action_metadata,
                 self.anim_info,
-                size=25,
-                tooltip="Show low level application state information",
+                size=30,
+                tooltip="Show application state information",
             )
         self.ui_slider()
         self.ui_buttons_top()
@@ -151,6 +162,17 @@ class SettingsUI(UIComponent):
             | mili.PADLESS,
         ):
             self.ui_image_btn(
+                ICONS.gpuon if self.app.save_use_renderer else ICONS.gpuoff,
+                self.action_gpu,
+                self.anims[10],
+                br="15",
+                tooltip=(
+                    "Disable hardware acceleration (requires restart)"
+                    if self.app.save_use_renderer
+                    else "Enable hardware acceleration (requires restart)"
+                ),
+            )
+            self.ui_image_btn(
                 ICONS.t_two if self.app.universal_font else ICONS.t_one,
                 self.action_font,
                 self.anims[5],
@@ -165,25 +187,16 @@ class SettingsUI(UIComponent):
                 ICONS.fps60 if self.app.user_framerate == 60 else ICONS.fps30,
                 self.action_fps,
                 self.anims[6],
-                br="5",
+                br="15",
                 tooltip="Set the framerate to 30"
                 if self.app.user_framerate == 60
                 else "Set the framerate to 60",
             )
             self.ui_image_btn(
-                ICONS.discordoff
-                if not self.app.discord_presence.active
-                else ICONS.discordon,
-                self.action_discord,
-                self.anims[7],
-                tooltip="Disable the discord presence"
-                if self.app.discord_presence.active
-                else "Enable the discord presence",
-            )
-            self.ui_image_btn(
-                ICONS.video_on if self.app.videoclip_on else ICONS.video_off,
+                ICONS.video_track if self.app.videoclip_on else ICONS.video_off,
                 self.action_videoclip,
                 self.anims[8],
+                br="15",
                 tooltip="Disable videoclip"
                 if self.app.videoclip_threaded
                 else "Enable videoclip",
@@ -195,6 +208,16 @@ class SettingsUI(UIComponent):
                 tooltip="Disable videoclip multithreading"
                 if self.app.videoclip_threaded
                 else "Enable videoclip multithreading",
+            )
+            self.ui_image_btn(
+                ICONS.discordoff
+                if not self.app.discord_presence.active
+                else ICONS.discordon,
+                self.action_discord,
+                self.anims[7],
+                tooltip="Disable the discord presence"
+                if self.app.discord_presence.active
+                else "Enable the discord presence",
             )
 
     def ui_slider(self):
@@ -266,6 +289,9 @@ class SettingsUI(UIComponent):
                     self.app.cursor_hover = True
         return handle
 
+    def action_notifs(self):
+        self.app.modal_state = "notifs"
+
     def action_metadata(self):
         self.app.modal_state = "state_info"
 
@@ -284,6 +310,9 @@ class SettingsUI(UIComponent):
                 webbrowser.open("https://github.com/satbyy/go-noto-universal/releases/")
             self.app.universal_font = False
         self.app.apply_font()
+
+    def action_gpu(self):
+        self.app.save_use_renderer = not self.app.save_use_renderer
 
     def action_videoclip(self):
         self.app.videoclip_on = not self.app.videoclip_on
@@ -326,7 +355,7 @@ class SettingsUI(UIComponent):
     def change_volume(self, value=None):
         if value is None:
             value = self.slider.valuex
-        self.app.volume = self.slider.valuex
+        self.app.volume = pygame.math.clamp(value, 0, 1)
         pygame.mixer.music.set_volume(self.app.volume)
 
     def action_mute(self):

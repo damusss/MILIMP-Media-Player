@@ -1,3 +1,13 @@
+# TODO:
+- use mili entryline. fix what shortcuts are available while the entrylines are running. you figure it out.
+- if a music is not found, don't error. but in the playlist, have a disclaimer "I can't find this anymore". if the user clicks on it they can give the new path for it.
+- open a raw playlist view. where the user can edit a lot of stuff. idk why, won't be easy but cool. put a disclaimer that any error might cause crashes, and to make a backup.
+- option to make a backup, and to load from a backup of a single playlist or the whole thing.
+- option to move a track to a different disk location.
+- allow videos without audio!
+- use MenuButton class
+> also since I got things to add I think I will slightly refactor the app state because controls and things are randomly split between the main class and the music controls class, aribitrarily, and it would be better if it was more organized
+
 # MILIMP Media Player
 
 An application using MILI-UI featuring a rich media player.<br>
@@ -9,7 +19,7 @@ An application using MILI-UI featuring a rich media player.<br>
 
     -   Tooltips
     -   Modern, fast, responsive UI (split screen for wide windows)
-    -   30/60 FPS, Power saving, Async loading/processing
+    -   30/60 FPS, Power saving, Async loading/processing, state info
     -   Custom titlebar/borders
     -   Drop file support
     -   Universal font integration
@@ -25,7 +35,7 @@ An application using MILI-UI featuring a rich media player.<br>
     -   Sort by default, title, views, channel
     -   Open video in browser, open channel in browser
     -   Download video, audio or both with any format
-    -   Download max res thumbnail
+    -   Download max resolution thumbnail
 
 -   Playlists (load from folder, rename, delete, reorder, upload/generate cover, search)
 
@@ -45,6 +55,7 @@ An application using MILI-UI featuring a rich media player.<br>
     -   Loop (playlist/music), Shuffle
     -   Miniplayer
     -   Video player (+ maximized/fullscreen)
+    -   Save Frame
 
 The file extension must always match the music format.
 Due to SDL limitations only a subset of the supported formats can be played directly, the rest will have a copy converted to MP3.
@@ -76,10 +87,10 @@ Note that the volume buttons do not change the app's volume. It is advised to le
 -   **UP**/**KP 8**: Volume up
 -   **DOWN**/**KP 2**: Volume down
 -   **SPACE**/**ENTER**/**KP ENTER**/**AUDIO PLAY**: Play/pause music
--   **LEFT**/**KP 4**/**AUDIO PREVIOUS**: Previous track
--   **RIGHT**/**KP 6**/**AUDIO NEXT**: Next track
--   **CTRL** + **LEFT**/**CTRL** + **KP 4**: Back 5 seconds
--   **CTRL** + **RIGHT**/**CTRL** + **KP 6**: Skip 5 seconds
+-   **CTRL** + **LEFT**/**CTRL** + **KP 4**/**AUDIO PREVIOUS**: Previous track
+-   **CTRL** + **RIGHT**/**CTRL** + **KP 6**/**AUDIO NEXT**: Next track
+-   **LEFT**/**KP 4**: Back 5 seconds
+-   **RIGHT**/**KP 6**: Skip 5 seconds
 -   **CTRL** + **Q**: Quit
 -   **CTRL** + **A**: New playlist/Add music
 -   **CTRL** + **S**: Save
