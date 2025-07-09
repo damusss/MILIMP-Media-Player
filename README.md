@@ -1,12 +1,7 @@
 # TODO:
 - use mili entryline. fix what shortcuts are available while the entrylines are running. you figure it out.
-- if a music is not found, don't error. but in the playlist, have a disclaimer "I can't find this anymore". if the user clicks on it they can give the new path for it.
-- open a raw playlist view. where the user can edit a lot of stuff. idk why, won't be easy but cool. put a disclaimer that any error might cause crashes, and to make a backup.
-- option to make a backup, and to load from a backup of a single playlist or the whole thing.
-- option to move a track to a different disk location.
-- allow videos without audio!
-- use MenuButton class
-> also since I got things to add I think I will slightly refactor the app state because controls and things are randomly split between the main class and the music controls class, aribitrarily, and it would be better if it was more organized
+- finish loading backup.
+- Make health check part of the app!
 
 # MILIMP Media Player
 
@@ -41,7 +36,7 @@ An application using MILI-UI featuring a rich media player.<br>
 
     -   Playlist Groups (collapsable, horizontal/vertical layout)
 
--   Musics (add, rename, delete, reorder, move to playlist, show in explorer, convert to MP3, change cover, view metadata)
+-   Musics (add, rename, delete, reorder, move to playlist, show in explorer, convert to MP3, change cover, view metadata, move to new location)
 
     -   **Audio and Video**: MP4, WEBM, AVI, MKV, MOV, FLV, WMV, M4V, 3GP, MPEG, MPG, OGV, MTS, TS
 
@@ -59,12 +54,13 @@ An application using MILI-UI featuring a rich media player.<br>
 
 The file extension must always match the music format.
 Due to SDL limitations only a subset of the supported formats can be played directly, the rest will have a copy converted to MP3.
-Videos must have an associated audio track to be valid.
+Videos are not forced to have an associated audio track.
 
 Videoclip multithreading increases the app FPS but will increase video lag for HD+ videos. Disable it for fluid video experiences.
 
 # Special Gestures
 
+-   Pause a video by clicking the frame. Double click it to fullscreen/minimize the video.
 -   Hold the mouse wheel button and scroll to reorder playlists and musics (hold shift to move faster)
 -   Click on the currently playing track's cover/(video + ctrl) to jump to the track in the playlist
 -   Hover a playlist's cover or the currently playing track's cover/video for a fraction of a second to view it in full screen
@@ -106,6 +102,7 @@ Note that the volume buttons do not change the app's volume. It is advised to le
 -   **CTRL** + **L**: Minimize window
 -   **CTRL** + **M**: Maximize window
 -   **CTRL** + **X**: Refresh YT search
+-   **CTRL** + **T**: Toggle videoclip threading
 -   **PAGE UP**/**KP 9**: Scroll up
 -   **PAGE DOWN**/**KP 3**: Scroll down
 

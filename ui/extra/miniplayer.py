@@ -7,6 +7,7 @@ from ui.common import *
 class MiniplayerUI:
     def __init__(self, app: "MILIMP"):
         self.app = app
+        self.state = app.state
         self.window = None
         self.focused = False
         self.mili = mili.MILI(mili.SurfaceCanva(pygame.Surface((10, 10))), True)
@@ -100,6 +101,10 @@ class MiniplayerUI:
         self.window.destroy()
         self.window = None
         self.focused = False
+        if USE_RENDERER:
+            mili.ImageCache._preallocated_caches = []
+            self.mili.canva._shape_cache = {}
+            self.app.mili.canva._shape_cache = {}
 
     def can_interact(self):
         return (
@@ -138,11 +143,7 @@ class MiniplayerUI:
             self.clamp_window()
 
     def resize_ratio(self):
-        cover = ICONS.music_cover
-        if self.app.music.cover is not None:
-            cover = self.app.music.cover
-        if self.app.music_controls.music_videoclip_cover:
-            cover = self.app.music_controls.music_videoclip_cover
+        cover = self.state.get_music_cover()
         if cover is None:
             return
         ratio = cover.width / cover.height
@@ -234,8 +235,8 @@ class MiniplayerUI:
 
     def ui_line(self):
         totalw = self.window.size[0] - self.mult(8)
-        pos = self.app.get_music_pos()
-        percentage = (pos) / self.app.music.duration
+        pos = self.state.get_music_pos()
+        percentage = (pos) / self.state.music.duration
 
         sizeperc = totalw * percentage
         data = self.mili.line_element(
@@ -254,28 +255,11 @@ class MiniplayerUI:
         )
 
     def ui_cover(self):
-        cover = ICONS.music_cover
-        if self.app.music.cover is not None:
-            cover = self.app.music.cover
-        current = (
-            self.app.music_controls.async_videoclip is not None
-            and self.app.music_controls.music_videoclip_cover is not None
-            and not self.app.music_paused
-            and not USE_RENDERER
-        )
-        if self.app.music_controls.music_videoclip_cover:
-            cover = self.app.music_controls.music_videoclip_cover
+        cover = self.state.get_music_cover(True)
         if cover is None:
             return
         it = self.mili.element(None, {"fillx": True, "filly": True, "blocking": None})
-        scaled = False
-        if current:
-            self.app.music_controls.videoclip_rects.append((0, it.data.rect))
-            if it.data.rect.size in (
-                out := self.app.music_controls.async_videoclip.scaled_output
-            ):
-                cover = out[it.data.rect.size]
-                scaled = True
+        scaled, cover = self.state.get_scaled_cover(cover, it, False)
         self.mili.image(cover, {"cache": self.cover_cache, "ready": scaled})
 
     def ui_controls(self):
@@ -303,31 +287,27 @@ class MiniplayerUI:
                     "fill_color": MP_BG_FILL,
                 },
             )
-            if self.app.music_index > 0 or shift:
+            if self.state.music_index > 0 or shift:
                 self.ui_control_btn(
                     ICONS.back5 if shift else ICONS.skip_previous,
                     50,
-                    self.app.music_controls.action_backwards_5
-                    if shift
-                    else self.app.music_controls.action_skip_previous,
+                    self.state.previous_5 if shift else self.state.skip_previous,
                     0,
                 )
             self.ui_control_btn(
-                ICONS.play if self.app.music_paused else ICONS.pause,
+                ICONS.play if self.state.music_paused else ICONS.pause,
                 60,
-                self.app.music_controls.action_play,
+                self.state.pause,
                 1,
             )
             if (
-                self.app.music_index < len(self.app.music.playlist.musiclist) - 1
+                self.state.music_index < len(self.state.music.playlist.musiclist) - 1
                 or shift
             ):
                 self.ui_control_btn(
                     ICONS.skip5 if shift else ICONS.skip_next,
                     50,
-                    self.app.music_controls.action_forward_5
-                    if shift
-                    else self.app.music_controls.action_skip_next,
+                    self.state.forward_5 if shift else self.state.skip_next,
                     2,
                 )
 

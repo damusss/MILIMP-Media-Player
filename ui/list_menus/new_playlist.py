@@ -269,8 +269,8 @@ class NewPlaylistUI(UIComponent):
                 if btn == 1:
                     return False
                 for music in p.musiclist:
-                    if music is self.app.music:
-                        self.app.end_music()
+                    if music is self.state.music:
+                        self.state.end_music()
                 self.app.playlists.remove(p)
         return True
 

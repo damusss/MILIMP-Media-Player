@@ -7,6 +7,7 @@ import datetime
 from pygame._sdl2 import video as pgvideo
 from ui.common import *
 import moviepy
+import zipfile
 
 
 try:
@@ -59,6 +60,46 @@ def convert_music_async(
         music.load_exc = e
 
 
+def create_backup_async(categories, path, comp):
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zfile:
+        if categories["Settings"]:
+            zfile.write("data/settings.json", "settings.json")
+            zfile.write("data/gpu.json", "gpu.json")
+        if categories["Playlists"]:
+            zfile.write("data/playlists.json", "playlists.json")
+        if categories["History"]:
+            zfile.write("data/history.json", "history.json")
+            zfile.write("data/search_results.json", "search_results.json")
+        if categories["Playlist Covers"]:
+            zfile.mkdir("covers")
+            for file in os.listdir("data/covers"):
+                zfile.write(f"data/covers/{file}", f"covers/{file}")
+        if categories["Music Covers"]:
+            zfile.mkdir("music_covers")
+            for file in os.listdir("data/music_covers"):
+                zfile.write(f"data/music_covers/{file}", f"music_covers/{file}")
+        if categories["MP3 Converted"]:
+            zfile.mkdir("mp3_converted")
+            for file in os.listdir("data/mp3_converted"):
+                zfile.write(f"data/mp3_converted/{file}", f"mp3_converted/{file}")
+        if categories["YT Downloads"]:
+            for folder, subfolders, files in os.walk("data/yt_downloads"):
+                zfile.mkdir(folder.removeprefix("data/"))
+                for file in files:
+                    zfile.write(os.path.join(f"{folder.removeprefix('data/')}", file))
+    comp.backing_up = False
+    comp.app.notify(NOTIF.DOWNLOAD, f"Backup saved to '{path}'")
+
+
+class MenuButton:
+    def __init__(self, icon, action, animation, br="50", tooltip=""):
+        self.icon = icon
+        self.action = action
+        self.animation = animation
+        self.br = br
+        self.tooltip = tooltip
+
+
 class Notification:
     def __init__(self, kind, message, error=False, hidden=False):
         self.kind = kind
@@ -85,10 +126,10 @@ class SafeRunningContext:
             if self.app is not None:
                 self.app.aborted = True
                 self.app.save()
-                async_videoclip = self.app.music_controls.async_videoclip
+                async_videoclip = self.app.state.async_videoclip
                 if async_videoclip is not None:
                     async_videoclip.alive = False
-                    if self.app.videoclip_threaded:
+                    if self.app.state.videoclip_threaded:
                         async_videoclip.thread.join()
             print(f"Application aborted with an exception ({exctype.__name__}).")
 
@@ -274,6 +315,7 @@ class AsyncYTEmbed:
 class AsyncVideoclipGetter:
     def __init__(self, realpath, app: "MILIMP"):
         self.app = app
+        self.state = app.state
         self.first = True
         self.realpath = realpath
         self.thread = None
@@ -308,7 +350,7 @@ class AsyncVideoclipGetter:
                 "neighbor"
                 if USE_RENDERER
                 else "fast_bilinear"
-                if self.app.videoclip_threaded
+                if self.state.videoclip_threaded
                 else "neighbor"
             )
             if self.is_large_media
@@ -320,7 +362,7 @@ class AsyncVideoclipGetter:
         desktop = self.desktop_size
         if self.is_large_media:
             desktop = self.desktop_size / (
-                1.2 if USE_RENDERER else 1.5 if self.app.videoclip_threaded else 1
+                1.2 if USE_RENDERER else 1.5 if self.state.videoclip_threaded else 1
             )
         size = pygame.Vector2(self.videoclip.size)
         self.original_size = size
@@ -369,13 +411,13 @@ class AsyncVideoclipGetter:
             self.clock.tick(10)
             return
         if (
-            self.app.videoclip_threaded
-            and not self.app.need_low_fps
-            and self.app.user_framerate != 30
+            self.state.videoclip_threaded
+            and not self.state.need_low_fps
+            and self.state.user_framerate != 30
         ):
             self.clock.tick(min(self.videoclip.fps + 5, self.framerate))
             self.current_fps = self.clock.get_fps()
-            if self.app.videoclip_on and len(self.fps_history) < 200:
+            if self.state.videoclip_on and len(self.fps_history) < 200:
                 now = pygame.time.get_ticks()
                 if self.current_fps != 0 and now - self.last_fps_check >= 500:
                     self.fps_history.append(self.current_fps)
@@ -383,8 +425,8 @@ class AsyncVideoclipGetter:
                 if len(self.fps_history) > 6:
                     average = sum(self.fps_history) / len(self.fps_history)
                     if average < 15:
-                        self.app.need_low_fps = True
-        if self.app.videoclip_on:
+                        self.state.need_low_fps = True
+        if self.state.videoclip_on:
             self.output = pygame.surfarray.make_surface(
                 numpy.transpose(self.videoclip.get_frame(self.time), (1, 0, 2))
             )
@@ -440,6 +482,8 @@ class MusicData:
     loaded_cover: bool
     loading_cover: bool
     cover_path: str
+    has_audio: bool
+    source_exists: bool
 
     @classmethod
     def load(
@@ -466,17 +510,14 @@ class MusicData:
         self.loaded_cover = False
         self.loading_cover = False
         self.cover_path = None
+        self.has_audio = True
+        self.source_exists = True
 
         cover_path = f"data/music_covers/{playlist.name}_{self.realstem}.png"
         if not os.path.exists(realpath):
-            pygame.display.message_box(
-                "Could not load music",
-                f"Could not load music '{realpath}' as the file doesn't exist anymore. Music will be skipped.",
-                "error",
-                None,
-                ("Understood",),
-            )
-            return
+            self.source_exists = False
+            self.audiopath = self.realpath
+            return self
         self.filesize = os.path.getsize(realpath)
 
         if self.isvideo:
@@ -494,6 +535,7 @@ class MusicData:
                 videofile = moviepy.VideoFileClip(str(realpath))
                 self.video_size = videofile.size
                 self.video_fps = videofile.fps
+                self.duration = videofile.duration
             except Exception:
                 pygame.display.message_box(
                     "Could not load music",
@@ -528,22 +570,17 @@ class MusicData:
 
             audiofile = videofile.audio
             if audiofile is None:
-                pygame.display.message_box(
-                    "Could not load music",
-                    f"Could not convert '{realpath}' to audio format: the video has no associated audio. Music will be skipped.",
-                    "error",
-                    None,
-                    ("Understood",),
-                )
-                return
+                self.has_audio = False
+                new_path = realpath
             self.audiopath = new_path
-            self.pending = True
-            thread = threading.Thread(
-                target=convert_music_async,
-                args=(self, audiofile, new_path),
-                daemon=True,
-            )
-            thread.start()
+            if self.has_audio:
+                self.pending = True
+                thread = threading.Thread(
+                    target=convert_music_async,
+                    args=(self, audiofile, new_path),
+                    daemon=True,
+                )
+                thread.start()
             return self
         elif self.isconvertible:
             new_path = pathlib.Path(
@@ -589,6 +626,10 @@ class MusicData:
             else:
                 self.audiopath = realpath
             return self
+        
+    def check_exists(self):
+        if self.source_exists and not os.path.exists(self.realpath):
+            self.source_exists = False
 
     def check(self):
         if not self.pending:
@@ -638,6 +679,17 @@ class MusicData:
             thread.start()
 
     def cache_duration(self):
+        if not self.source_exists:
+            self.duration = None
+            return
+        if not self.has_audio:
+            try:
+                videofile = moviepy.VideoFileClip(str(self.realpath), audio=False)
+                self.duration = videofile.duration
+                videofile.close()
+            except Exception:
+                self.duration = None
+            return
         try:
             soundfile = moviepy.AudioFileClip(str(self.audiopath))
             self.duration = soundfile.duration
@@ -848,6 +900,7 @@ class Playlist:
         else:
             self.musiclist.append(music_data)
         self.musictable[music_data.audiopath] = music_data
+        return music_data
 
     def remove(self, path):
         music = self.musictable.pop(path)

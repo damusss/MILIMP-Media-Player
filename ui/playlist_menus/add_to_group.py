@@ -112,8 +112,8 @@ class AddToGroupUI(UIComponent):
     def add(self, group: PlaylistGroup):
         self.music.group = group
         group.musics.append(self.music)
-        if self.music is self.app.music:
-            self.app.music_index = self.music.playlist.get_group_sorted_musics().index(
+        if self.music is self.state.music:
+            self.state.music_index = self.music.playlist.get_group_sorted_musics().index(
                 self.music
             )
 
@@ -127,7 +127,6 @@ class AddToGroupUI(UIComponent):
             return False
         if event.type == pygame.MOUSEWHEEL:
             handle_wheel_scroll(event, self.app, self.scroll, self.scrollbar)
-
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             self.close()
             return True

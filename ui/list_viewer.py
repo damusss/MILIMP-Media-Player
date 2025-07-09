@@ -1,7 +1,7 @@
 import mili
 import pygame
 from ui.common import *
-from ui.common.data import Playlist
+from ui.common.data import Playlist, MenuButton
 from ui.list_menus.new_playlist import NewPlaylistUI
 from ui.list_menus.rename_playlist import RenamePlaylistUI
 from ui.list_menus.info import InfoUI
@@ -176,7 +176,7 @@ class ListViewerUI(UIComponent):
                     (0, 0, imagesize, imagesize),
                     {"align": "center", "blocking": False},
                 )
-            if self.app.music is not None and self.app.music.playlist is playlist:
+            if self.state.music is not None and self.state.music.playlist is playlist:
                 padsize = self.mult(30)
                 self.mili.image_element(
                     ICONS.playbars,
@@ -213,17 +213,17 @@ class ListViewerUI(UIComponent):
                 ):
                     self.app.open_menu(
                         playlist,
-                        (
+                        MenuButton(
                             ICONS.rename,
                             self.action_rename,
                             self.menu_anims[0],
-                            "Rename playlist",
+                            tooltip="Rename playlist",
                         ),
-                        (
+                        MenuButton(
                             ICONS.delete,
                             self.action_delete,
                             self.menu_anims[1],
-                            "Delete playlist",
+                            tooltip="Delete playlist",
                         ),
                     )
                 elif cont.just_pressed_button == pygame.BUTTON_MIDDLE:
@@ -233,7 +233,7 @@ class ListViewerUI(UIComponent):
         forcehover = (
             self.app.menu_data is playlist and self.app.menu_open
         ) or self.middle_selected is playlist
-        if self.app.bg_effect:
+        if self.state.bg_effect:
             self.mili.image(
                 SURF,
                 {
@@ -287,8 +287,8 @@ class ListViewerUI(UIComponent):
             return
         try:
             for music in self.app.menu_data.musiclist:
-                if music is self.app.music:
-                    self.app.end_music()
+                if music is self.state.music:
+                    self.state.end_music()
                 self.app.remove_from_history(music)
             self.app.playlists.remove(self.app.menu_data)
             self.app.notify(

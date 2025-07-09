@@ -97,6 +97,7 @@ class MusicMetadataUI(UIComponent):
                     self.ui_metadata_column(
                         "Is Video", "Yes" if self.music.isvideo else "No (audio only)"
                     )
+                    self.ui_metadata_column("Has Audio", "Yes" if self.music.has_audio else "No (video only)")
                     self.ui_metadata_column(
                         "Track Positioning",
                         "Supported" if self.music.pos_supported else "Unsupported",
@@ -112,13 +113,13 @@ class MusicMetadataUI(UIComponent):
                             or self.music.video_fps is NotCached
                         ):
                             if (
-                                self.music is self.app.music
-                                and self.app.music_controls.async_videoclip is not None
-                                and self.app.music_controls.async_videoclip.videoclip
+                                self.music is self.state.music
+                                and self.state.async_videoclip is not None
+                                and self.state.async_videoclip.videoclip
                                 is not None
                             ):
-                                self.music.video_size = self.app.music_controls.async_videoclip.original_size
-                                self.music.video_fps = self.app.music_controls.async_videoclip.videoclip.fps
+                                self.music.video_size = self.state.async_videoclip.original_size
+                                self.music.video_fps = self.state.async_videoclip.videoclip.fps
                             else:
                                 self.music.cache_video_metadata()
                         if self.music.video_size is not None:

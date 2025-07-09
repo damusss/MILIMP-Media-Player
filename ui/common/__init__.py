@@ -10,7 +10,7 @@ if typing.TYPE_CHECKING:
     from MILIMP import MILIMP
     from ui.state import MusicState
 
-DEV_VERSION = 38
+DEV_VERSION = 39
 PREFERRED_SIZES = (415, 700)
 MINIP_PREFERRED_SIZES = 200, 200
 UI_SIZES = (480, 720)
@@ -557,6 +557,7 @@ class Keybinds:
             "maximize_window": Binding(pygame.K_m, ctrl=True),
             "clean_controls_ui": Binding(pygame.K_F1),
             "refresh_yt_search": Binding(pygame.K_x, ctrl=True),
+            "toggle_videoclip_threading": Binding(pygame.K_t, ctrl=True),
             "scroll_up": Binding(pygame.K_PAGEUP, pygame.K_KP9),
             "scroll_down": Binding(pygame.K_PAGEDOWN, pygame.K_KP3),
         }
@@ -663,6 +664,12 @@ class Icons:
         self.shown = load_icon("shown")
         self.gpuon = load_icon("gpuon")
         self.gpuoff = load_icon("gpuoff")
+        self.backup_save = load_icon("backupsave")
+        self.backup_load = load_icon("backupload")
+        self.checkbox_on = load_icon("checkboxon")
+        self.checkbox_off = load_icon("checkboxoff")
+        self.folder_move = load_icon("folder_move")
+        self.health = load_icon("health")
 
 
 class NOTIF:
@@ -676,6 +683,7 @@ class NOTIF:
     DOWNLOAD = "download_done"
     INFO = "infoon"
     ERROR = "error"
+    CONFIRM = "confirm"
 
 
 ICONS = Icons()

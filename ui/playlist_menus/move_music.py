@@ -117,8 +117,8 @@ class MoveMusicUI(UIComponent):
             self.ui_scrollbar()
 
     def move(self, playlist: Playlist):
-        if self.music == self.app.music:
-            self.app.end_music()
+        if self.music == self.state.music:
+            self.state.end_music()
         self.app.remove_from_history(self.music)
         if self.music.group is not None:
             self.music.group.remove(self.music)

@@ -27,6 +27,7 @@ def discord_presence_connect(presence: "DiscordPresence"):
 class DiscordPresence:
     def __init__(self, app: "MILIMP"):
         self.app = app
+        self.state = app.state
         self.active = False
         self.last_update = 0
         self.connect_error = None
@@ -84,15 +85,15 @@ class DiscordPresence:
         small_image = None
         small_text = None
 
-        if self.app.music is not None:
+        if self.state.music is not None:
             state = (
-                f"Listening to: {parse_music_stem(self.app, self.app.music.realstem)}"
+                f"Listening to: {parse_music_stem(self.app, self.state.music.realstem)}"
             )
-            details = f"Playlist: {self.app.music.playlist.name}"
-            start = self.app.music_start_time
+            details = f"Playlist: {self.state.music.playlist.name}"
+            start = self.state.music_start_time
             small_image = "mili_miniplayer_icon"
             small_text = "Music is playing"
-            if self.app.music_paused:
+            if self.state.music_paused:
                 small_image = "mili_paused_icon"
                 small_text = "Music is paused"
 

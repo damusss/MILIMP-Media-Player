@@ -1,4 +1,5 @@
 import mili
+import shutil
 import pygame
 import pathlib
 import platform
@@ -20,6 +21,7 @@ from ui.common.data import (
     MusicData,
     PlaylistGroup,
     NotCached,
+    MenuButton,
     convert_music_async,
 )
 
@@ -31,7 +33,7 @@ class PlaylistViewerUI(UIComponent):
         self.anim_cover = animation(-5)
         self.anim_back = animation(-3)
         self.anim_search = animation(-5)
-        self.menu_anims = [animation(-4) for i in range(10)]
+        self.menu_anims = [animation(-4) for i in range(11)]
         self.modal_state = "none"
         self.middle_selected: MusicData | PlaylistGroup = None
         self.search_active = False
@@ -194,7 +196,7 @@ class PlaylistViewerUI(UIComponent):
                     if len(group.musics) <= 0 and not self.search_active:
                         self.ui_group(group, empty=True)
 
-                for path in paths:
+                for i, path in enumerate(paths):
                     music = self.playlist.musictable[path]
                     if music.check():
                         continue
@@ -218,7 +220,7 @@ class PlaylistViewerUI(UIComponent):
                     if music.pending:
                         self.ui_pending(music)
                         continue
-                    off_screen = self.ui_music(music, off_screen)
+                    off_screen = self.ui_music(music, off_screen, i)
 
                 self.mili.text_element(
                     f"{len(self.playlist.musiclist)} track{
@@ -263,7 +265,8 @@ class PlaylistViewerUI(UIComponent):
                 self.mili.image_element(
                     (
                         ICONS.playbars
-                        if self.app.music is not None and self.app.music.group is group
+                        if self.state.music is not None
+                        and self.state.music.group is group
                         else ICONS.down
                     )
                     if group.collapsed
@@ -272,8 +275,8 @@ class PlaylistViewerUI(UIComponent):
                         "cache": get_img_cache(),
                         "padx": self.mult(5)
                         if (
-                            self.app.music is not None
-                            and self.app.music.group is group
+                            self.state.music is not None
+                            and self.state.music.group is group
                             and group.collapsed
                         )
                         else 0,
@@ -312,13 +315,13 @@ class PlaylistViewerUI(UIComponent):
                 elif cont.just_released_button == pygame.BUTTON_RIGHT:
                     self.app.open_menu(
                         group,
-                        (
+                        MenuButton(
                             ICONS.rename,
                             self.action_rename_group,
                             self.menu_anims[-3],
-                            "Rename group",
+                            tooltip="Rename group",
                         ),
-                        (
+                        MenuButton(
                             ICONS.columns if group.mode == "v" else ICONS.rows,
                             self.action_group_mode,
                             self.menu_anims[-2],
@@ -327,11 +330,11 @@ class PlaylistViewerUI(UIComponent):
                             if group.mode == "v"
                             else "View group tracks in rows",
                         ),
-                        (
+                        MenuButton(
                             ICONS.delete,
                             self.action_delete_group,
                             self.menu_anims[-1],
-                            "Delete group",
+                            tooltip="Delete group",
                         ),
                     )
                 elif cont.left_just_released and not empty:
@@ -347,7 +350,7 @@ class PlaylistViewerUI(UIComponent):
                 else cond(self.app, cont, *GROUP_CV)
             ),
         ) * 3
-        if self.app.bg_effect:
+        if self.state.bg_effect:
             self.mili.image(
                 SURF,
                 {
@@ -552,29 +555,32 @@ class PlaylistViewerUI(UIComponent):
             if cont.data.absolute_rect.colliderect(((0, 0), self.app.split_size)):
                 for music in group.musics:
                     if mit := self.mili.element(None, {"fillx": True, "filly": True}):
-                        self.ui_music_bg(mit, music)
+                        if music.source_exists:
+                            self.ui_music_bg(mit, music)
+                        else:
+                            self.mili.rect({"color": (100, 0, 0), "border_radius": 0})
                         is_current = False
                         if not music.loaded_cover and music.cover_path is not None:
                             music.load_cover_async(music.cover_path, ICONS.loading)
                         cover = music.cover_or(ICONS.music_cover)
                         if (
-                            music is self.app.music
-                            and self.app.music_controls.music_videoclip_cover
-                            is not None
+                            music is self.state.music
+                            and self.state.music_videoclip_cover is not None
                             and self.app.focused
                         ):
-                            cover = self.app.music_controls.music_videoclip_cover
+                            cover = self.state.music_videoclip_cover
                             is_current = True
                         if cover is not None:
                             scaled = False
                             if (
                                 is_current
-                                and (av := self.app.music_controls.async_videoclip)
-                                is not None
+                                and (av := self.state.async_videoclip) is not None
                             ):
                                 if mit.data.rect.size in av.scaled_output:
                                     cover = av.scaled_output[mit.data.rect.size]
                                     scaled = True
+                            if not music.source_exists:
+                                cover = ICONS.error
                             self.mili.image(
                                 cover,
                                 {
@@ -587,7 +593,7 @@ class PlaylistViewerUI(UIComponent):
                                 self.app.music_controls.videoclip_rects.append(
                                     (self.mult(3), mit.data.rect)
                                 )
-                        if music is self.app.music:
+                        if music is self.state.music:
                             self.mili.image(
                                 ICONS.playbars,
                                 {
@@ -601,7 +607,7 @@ class PlaylistViewerUI(UIComponent):
                                 f"{parse_music_stem(self.app, music.realstem)}"
                             )
 
-    def ui_music(self, music: MusicData, offscreen=False):
+    def ui_music(self, music: MusicData, offscreen=False, i=-1):
         if offscreen:
             self.mili.element((0, 0, 0, self.mult(80)), {"blocking": False})
             return offscreen
@@ -617,21 +623,23 @@ class PlaylistViewerUI(UIComponent):
                 "axis": "x",
                 "align": "center",
                 "anchor": "first",
-                # "resizey": {"min": self.mult(80)},
                 "size_clamp": {"min": (None, self.mult(80))},
             },
         ) as cont:
             if cont.data.absolute_rect.colliderect(((0, 0), self.app.split_size)):
-                self.ui_music_bg(cont, music)
+                if music.source_exists:
+                    self.ui_music_bg(cont, music)
+                else:
+                    self.mili.rect({"color": (100, 0, 0), "border_radius": 0})
                 imagesize = padsize = 0
                 if (
                     music.group is not None and not self.search_active
-                ) or music is self.app.music:
+                ) or music is self.state.music:
                     padsize = self.mult(30)
                     self.mili.element(
                         (0, 0, padsize, 0), {"filly": True, "blocking": False}
                     )
-                    if music is self.app.music:
+                    if music is self.state.music:
                         self.mili.image(
                             ICONS.playbars,
                             {"cache": get_img_cache()},
@@ -641,12 +649,12 @@ class PlaylistViewerUI(UIComponent):
                 cover = music.cover_or(ICONS.music_cover)
                 is_current = False
                 if (
-                    music is self.app.music
-                    and self.app.music_controls.music_videoclip_cover is not None
+                    music is self.state.music
+                    and self.state.music_videoclip_cover is not None
                     and self.app.focused
-                    and self.app.music
+                    and self.state.music
                 ):
-                    cover = self.app.music_controls.music_videoclip_cover
+                    cover = self.state.music_videoclip_cover
                     is_current = True
                 if cover is not None:
                     imagesize = self.mult(70)
@@ -660,10 +668,12 @@ class PlaylistViewerUI(UIComponent):
                             (0, cel.data.rect)
                         )
 
-                        if (av := self.app.music_controls.async_videoclip) is not None:
+                        if (av := self.state.async_videoclip) is not None:
                             if cel.data.rect.size in av.scaled_output:
                                 cover = av.scaled_output[cel.data.rect.size]
                                 scaled = True
+                    if not music.source_exists:
+                        cover = ICONS.error
                     self.mili.image(
                         cover,
                         {"cache": get_img_cache(), "ready": scaled},
@@ -687,32 +697,38 @@ class PlaylistViewerUI(UIComponent):
                     ),
                     {"align": "first", "blocking": False},
                 )
-                self.ui_music_interaction(music, cont)
+                self.ui_music_interaction(music, cont, i)
             else:
                 self.mili.element((0, 0, 0, self.mult(70)), {"blocking": False})
                 if cont.data.absolute_rect.top > self.app.window.size[1] * 1.2:
                     offscreen = True
         return offscreen
 
-    def ui_music_interaction(self, music: MusicData, cont: mili.Interaction):
+    def ui_music_interaction(self, music: MusicData, cont: mili.Interaction, i=-1):
         if self.app.can_interact():
             if cont.hovered or cont.unhover_pressed:
                 self.app.cursor_hover = True
             if cont.left_just_released:
-                self.action_start_playing(music)
+                music.check_exists()
+                if music.source_exists:
+                    self.action_start_playing(music)
+                else:
+                    self.action_restore_music(music, i)
             elif cont.just_released_button == pygame.BUTTON_RIGHT:
-                self.open_menu(music)
+                music.check_exists()
+                if music.source_exists:
+                    self.open_menu(music)
             elif cont.just_pressed_button == pygame.BUTTON_MIDDLE:
                 self.middle_selected = music
 
     def ui_music_bg(self, cont, music):
         forcehover = (
-            self.app.music == music
+            self.state.music == music
             or (self.app.menu_data == music and self.app.menu_open)
             or self.middle_selected == music
         )
         color = MUSIC_CV[1] if forcehover else cond(self.app, cont, *MUSIC_CV)
-        if self.app.bg_effect:
+        if self.state.bg_effect:
             self.mili.image(
                 SURF,
                 {
@@ -740,30 +756,30 @@ class PlaylistViewerUI(UIComponent):
 
     def open_menu(self, music: MusicData):
         buttons = [
-            (
+            MenuButton(
                 ICONS.rename,
                 self.action_rename,
                 self.menu_anims[1],
-                "Rename track",
+                tooltip="Rename track",
             ),
-            (
+            MenuButton(
                 ICONS.forward,
                 self.action_forward,
                 self.menu_anims[2],
-                "Move track to playlist",
+                tooltip="Move track to playlist",
             ),
-            (
+            MenuButton(
                 ICONS.minip,
                 self.action_show_in_explorer,
                 self.menu_anims[3],
-                "30",
+                "50",
                 "Show in explorer",
             ),
         ]
         if len(self.playlist.groups) > 0:
             buttons.insert(
                 0,
-                (
+                MenuButton(
                     (ICONS.playlistadd if music.group is None else ICONS.remove),
                     (
                         self.action_add_to_group
@@ -771,7 +787,9 @@ class PlaylistViewerUI(UIComponent):
                         else self.action_remove_from_group
                     ),
                     self.menu_anims[0],
-                    "Add to group" if music.group is None else "Remove from group",
+                    tooltip="Add to group"
+                    if music.group is None
+                    else "Remove from group",
                 ),
             )
         if (
@@ -781,38 +799,96 @@ class PlaylistViewerUI(UIComponent):
             and not music.isconvertible
         ):
             buttons.append(
-                (
+                MenuButton(
                     ICONS.convert,
                     self.action_convert,
                     self.menu_anims[4],
-                    "30",
+                    "50",
                     "Convert to MP3",
                 )
             )
         buttons.extend(
             [
-                (
+                MenuButton(
                     ICONS.change_cover,
                     self.action_change_cover,
                     self.menu_anims[6],
-                    "30",
+                    "50",
                     "Change track cover",
                 ),
-                (
+                MenuButton(
+                    ICONS.folder_move,
+                    self.action_folder_move,
+                    self.menu_anims[10],
+                    "50",
+                    "Move the track to a different disk location",
+                ),
+                MenuButton(
                     ICONS.infoon,
                     self.action_metadata,
                     self.menu_anims[7],
-                    "View track metadata",
+                    tooltip="View track metadata",
                 ),
-                (
+                MenuButton(
                     ICONS.delete,
                     self.action_delete,
                     self.menu_anims[8],
-                    "Delete track",
+                    tooltip="Delete track",
                 ),
             ]
         )
         self.app.open_menu(music, *buttons)
+
+    def action_folder_move(self):
+        if self.app.menu_data is self.state.music:
+            self.state.end_music()
+        self.app.close_menu()
+        folder = filedialog.askdirectory()
+        if not folder:
+            return
+        music: MusicData = self.app.menu_data
+        audiopath_same_realpath = music.audiopath == music.realpath
+        new_path = os.path.join(folder, music.realpath.name)
+        if os.path.exists(new_path):
+            return
+        new_path = pathlib.Path(shutil.move(music.realpath, folder))
+        music.realpath = new_path
+        if audiopath_same_realpath:
+            old_path = music.audiopath
+            music.audiopath = new_path
+            music.playlist.musictable.pop(old_path)
+            music.playlist.musictable[new_path] = music
+        self.app.notify(
+            NOTIF.CONFIRM,
+            f"'{music.realpath}' succesfully moved to the new destination '{folder}'",
+        )
+
+    def action_restore_music(self, music: MusicData, index=-1):
+        button = pygame.display.message_box(
+            "Track renamed, deleted or moved",
+            "The track was renamed or deleted outside of the app or moved to a new location. You can choose to remove it from the playlist or specify its new location.",
+            "error",
+            buttons=["Specify Location", "Remove", "Resolve Later"],
+        )
+        if button == 2:
+            return
+        if button == 1:
+            music.playlist.remove(music.audiopath)
+            return
+        path = filedialog.askopenfilename()
+        if not path:
+            return
+        group = music.group
+        if group:
+            gidx = group.musics.index(music)
+        new_music = music.playlist.load_music(pathlib.Path(path), ICONS.loading, index)
+        music.playlist.remove(music.audiopath)
+        if group is not None:
+            group.musics.insert(gidx, new_music)
+            new_music.group = group
+        self.app.notify(
+            NOTIF.CONFIRM, f"Track's location was updated succesfully to '{path}'"
+        )
 
     def action_change_cover(self):
         music: MusicData = self.app.menu_data
@@ -859,8 +935,8 @@ class PlaylistViewerUI(UIComponent):
 
     def action_remove_from_group(self):
         self.app.menu_data.group.remove(self.app.menu_data)
-        if self.app.menu_data is self.app.music:
-            self.app.music_index = self.playlist.get_group_sorted_musics().index(
+        if self.app.menu_data is self.state.music:
+            self.state.music_index = self.playlist.get_group_sorted_musics().index(
                 self.app.menu_data
             )
         self.app.close_menu()
@@ -884,8 +960,8 @@ class PlaylistViewerUI(UIComponent):
         ).resolve()
         if os.path.exists(new_path):
             self.app.close_menu()
-            if music is self.app.music:
-                self.app.end_music()
+            if music is self.state.music:
+                self.state.end_music()
             music.converted = True
             return
 
@@ -904,8 +980,8 @@ class PlaylistViewerUI(UIComponent):
             return
 
         self.app.close_menu()
-        if music is self.app.music:
-            self.app.end_music()
+        if music is self.state.music:
+            self.state.end_music()
 
         music.audiofile = audiofile
         music.pending = True
@@ -936,7 +1012,7 @@ class PlaylistViewerUI(UIComponent):
 
     def back(self):
         for music in self.playlist.musiclist:
-            if music is self.app.music:
+            if music is self.state.music:
                 continue
             music.loading_cover = False
             music.loaded_cover = False
@@ -1001,8 +1077,8 @@ class PlaylistViewerUI(UIComponent):
             self.app.close_menu()
             return
         try:
-            if self.app.menu_data == self.app.music:
-                self.app.end_music()
+            if self.app.menu_data == self.state.music:
+                self.state.end_music()
             self.app.remove_from_history(self.app.menu_data)
             path = self.app.menu_data.audiopath
             self.playlist.remove(path)
@@ -1033,10 +1109,10 @@ class PlaylistViewerUI(UIComponent):
         musictochangeindex = None
         for music in self.app.menu_data.musics.copy():
             self.app.menu_data.remove(music)
-            if music is self.app.music:
+            if music is self.state.music:
                 musictochangeindex = music
         if musictochangeindex is not None:
-            self.app.music_index = self.playlist.get_group_sorted_musics().index(
+            self.state.music_index = self.playlist.get_group_sorted_musics().index(
                 musictochangeindex
             )
         self.playlist.groups.remove(self.app.menu_data)
@@ -1046,7 +1122,7 @@ class PlaylistViewerUI(UIComponent):
         self.app.close_menu()
 
     def action_start_playing(self, music: MusicData):
-        self.app.play_music(
+        self.state.play_music(
             music, music.playlist.get_group_sorted_musics().index(music)
         )
 
@@ -1055,8 +1131,8 @@ class PlaylistViewerUI(UIComponent):
         self.search_entryline.text = ""
 
     def set_scroll_to_music(self, increase=False, incdir=1):
-        if self.app.music.group is not None:
-            self.app.music.group.collapsed = False
+        if self.state.music.group is not None:
+            self.state.music.group.collapsed = False
         if increase:
             self.scroll.scroll(0, (self.mult(80) + 6) * incdir)
             # self.scrollbar.scroll_moved()
@@ -1064,22 +1140,25 @@ class PlaylistViewerUI(UIComponent):
         remove_amount = 0
         group_amount = 0
         line_amount = 0
-        for group in self.app.music.playlist.groups:
+        for group in self.state.music.playlist.groups:
             if len(group.musics) <= 0:
                 group_amount += 1
             else:
-                if group.idx <= self.app.music_index or group is self.app.music.group:
+                if (
+                    group.idx <= self.state.music_index
+                    or group is self.state.music.group
+                ):
                     group_amount += 1
                     if group.collapsed:
                         remove_amount += len(group.musics)
                     elif group.mode == "h":
                         remove_amount += len(group.musics) - 1
-                    elif group.idx < self.app.music_index:
+                    elif group.idx < self.state.music_index:
                         line_amount += 1
         self.scroll.set_scroll(
             0,
             (
-                ((self.app.music_index - 1) * (self.mult(80) + 3))
+                ((self.state.music_index - 1) * (self.mult(80) + 3))
                 - (remove_amount * (self.mult(80) + 3))
                 + (group_amount * (self.mult(45) + 3))
                 + (line_amount * (self.mult(7) + 3))
@@ -1098,8 +1177,8 @@ class PlaylistViewerUI(UIComponent):
             else:
                 self.reorder_music_group(inc)
 
-            if self.middle_selected is self.app.music:
-                self.app.music_index = self.playlist.get_group_sorted_musics().index(
+            if self.middle_selected is self.state.music:
+                self.state.music_index = self.playlist.get_group_sorted_musics().index(
                     self.middle_selected
                 )
         else:
@@ -1126,8 +1205,8 @@ class PlaylistViewerUI(UIComponent):
         for music in (
             sel_group.musics
         ):  # if any music inside the group was playing, reset its index
-            if music is self.app.music:
-                self.app.music_index = self.playlist.get_group_sorted_musics().index(
+            if music is self.state.music:
+                self.state.music_index = self.playlist.get_group_sorted_musics().index(
                     music
                 )
                 break

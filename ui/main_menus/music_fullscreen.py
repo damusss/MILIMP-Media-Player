@@ -14,7 +14,7 @@ class MusicFullscreenUI(UIComponent):
 
     def ui(self):
         self.mili.id_checkpoint(ID_OFFSET + 120000)
-        if self.app.music is None:
+        if self.state.music is None:
             self.close()
             return
         with self.mili.begin(
@@ -25,20 +25,7 @@ class MusicFullscreenUI(UIComponent):
                 SURF, {"fill": True, "fill_color": (0, 0, 0, 255), "cache": self.cache}
             )
 
-            cover = ICONS.music_cover
-            current = (
-                self.app.music_controls.async_videoclip is not None
-                and self.app.music_controls.music_videoclip_cover is not None
-                and not self.app.music_paused
-                and self.app.focused
-            )
-            if self.app.music.cover is not None:
-                cover = self.app.music.cover
-            if (
-                self.app.music_controls.music_videoclip_cover is not None
-                and self.app.focused
-            ):
-                cover = self.app.music_controls.music_videoclip_cover
+            cover = self.state.get_music_cover()
             if cover is None:
                 self.close()
             else:
@@ -53,14 +40,7 @@ class MusicFullscreenUI(UIComponent):
                     ),
                     {"fillx": True},
                 )
-                scaled = False
-                if current:
-                    self.app.music_controls.videoclip_rects.append((0, it.data.rect))
-                    if it.data.rect.size in (
-                        out := self.app.music_controls.async_videoclip.scaled_output
-                    ):
-                        cover = out[it.data.rect.size]
-                        scaled = True
+                scaled, cover = self.state.get_scaled_cover(cover, it, True)
                 self.mili.image(
                     cover,
                     {"cache": self.music_cache, "ready": scaled} | mili.PADLESS,
@@ -69,14 +49,14 @@ class MusicFullscreenUI(UIComponent):
                     self.app.cursor_hover = True
                 if it.left_just_released:
                     if pygame.time.get_ticks() - self.last_frame_click <= 200:
-                        if self.app.music_controls.super_fullscreen:
+                        if self.app.super_fullscreen:
                             self.close_superfullscreen()
                         else:
                             self.close()
                     self.app.music_controls.clean_ui = False
-                    self.app.music_controls.action_play()
+                    self.app.state.pause()
                     self.last_frame_click = pygame.time.get_ticks()
-            if not self.app.music_controls.super_fullscreen or (
+            if not self.app.super_fullscreen or (
                 pygame.time.get_ticks() - self.last_move <= 2000
             ):
                 if not pygame.mouse.get_visible():
@@ -86,7 +66,7 @@ class MusicFullscreenUI(UIComponent):
                     self.close,
                     ICONS.fullscreenclose,
                     tooltip="Disable fullscreen"
-                    if self.app.music_controls.super_fullscreen
+                    if self.app.super_fullscreen
                     else "Minimize",
                 )
             else:
@@ -98,17 +78,19 @@ class MusicFullscreenUI(UIComponent):
             self.last_mouse = mouse
 
     def close_superfullscreen(self):
-        if self.app.music_controls.super_fullscreen:
-            self.app.music_controls.super_fullscreen = False
+        pygame.mouse.set_visible(True)
+        if self.app.super_fullscreen:
+            self.app.super_fullscreen = False
             if self.app.maximized:
                 self.app.window.size = (
                     self.app.window.size[0],
-                    self.app.music_controls.before_super_fullscreen_height,
+                    self.app.before_super_fullscreen_height,
                 )
             return True
         return False
 
     def close(self):
+        pygame.mouse.set_visible(True)
         if self.close_superfullscreen():
             return
         self.app.modal_state = "none"

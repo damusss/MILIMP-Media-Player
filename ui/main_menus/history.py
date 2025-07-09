@@ -37,7 +37,7 @@ class HistoryUI(UIComponent):
                     "offset": (
                         0,
                         -self.mult(50)
-                        * (self.app.music is not None and not self.app.split_screen)
+                        * (self.state.music is not None and not self.app.split_screen)
                         - self.app.tbarh / 2,
                     ),
                     "blocking": None,
@@ -198,11 +198,11 @@ class HistoryUI(UIComponent):
 
     def restore_history(self, history: HistoryData):
         self.app.playlist_viewer.enter(history.music.playlist)
-        self.app.play_music(
+        self.state.play_music(
             history.music,
             history.music.playlist.get_group_sorted_musics().index(history.music),
         )
-        self.app.set_music_pos(history.position)
+        self.state.set_music_pos(history.position)
         self.app.playlist_viewer.set_scroll_to_music()
         self.app.modal_state = "none"
 

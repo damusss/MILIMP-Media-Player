@@ -10,6 +10,7 @@ from ui.yt_menus.yt_playlist import YTPlaylistUI
 from ui.common.data import (
     YTVideoResult,
     AsyncYTEmbed,
+    MenuButton
 )
 from ui.common.yt_actions import (
     search_videos_ytdlp_async,
@@ -678,7 +679,7 @@ class YTSearchUI(UIComponent):
     def ui_video_bg(self, cont, video):
         forcehover = self.app.menu_data == video and self.app.menu_open
         color = MUSIC_CV[1] if forcehover else cond(self.app, cont, *MUSIC_CV)
-        if self.app.bg_effect:
+        if self.state.bg_effect:
             self.mili.image(
                 SURF,
                 {
@@ -724,34 +725,34 @@ class YTSearchUI(UIComponent):
     def open_video_menu(self, video):
         self.app.open_menu(
             video,
-            (
+            MenuButton(
                 ICONS.minip,
                 self.action_open_link,
                 self.anims[0],
                 "30",
                 "Open video in browser",
             ),
-            (
+            MenuButton(
                 ICONS.minipd,
                 self.action_open_embed,
                 self.anims[1],
                 "30",
                 "Open video embed (SHIFT for full youtube embed)",
             ),
-            (
+            MenuButton(
                 ICONS.download,
                 self.action_download,
                 self.anims[2],
-                "Select formats and download",
+                tooltip="Select formats and download",
             ),
-            (
+            MenuButton(
                 ICONS.download_file,
                 self.action_download_thumb,
                 self.anims[3],
                 "30",
                 "Download thumbnail (highest resolution)",
             ),
-            (
+            MenuButton(
                 ICONS.copy,
                 self.action_copy_url,
                 self.anims[4],

@@ -17,10 +17,11 @@ from ui.main_menus.history import HistoryUI
 from ui.main_menus.settings import SettingsUI
 from ui.main_menus.state_info import StateInfoUI
 from ui.main_menus.notifications import NotificationsUI
+from ui.main_menus.backup_save import BackupSaveUI
+from ui.main_menus.health_check import HealthCheckUI
 from ui.yt_search import YTSearchUI
 from ui.list_viewer import ListViewerUI
 from ui.main_menus.edit_keybinds import EditKeybindsUI
-from health_check import main as health_check
 from ui.music_controls import MusicControlsUI
 from ui.playlist_viewer import PlaylistViewerUI
 from ui.extra.discord_presence import DiscordPresence
@@ -35,6 +36,7 @@ from ui.common.data import (
     YTVideoResult,
     SafeRunningContext,
     Notification,
+    MenuButton,
     safeguard_window,
 )
 
@@ -63,15 +65,10 @@ class MILIMP(mili.GenericApp):
         self.init_mili_settings()
         self.init_try_set_icon_mac()
         self.make_bg_image()
-        self.init_health_check()
 
     def init_load_icons(self):
         ICONS.load()
         self.window.set_icon(ICONS.playlist_cover)
-
-    def init_health_check(self):
-        thread = threading.Thread(target=health_check, daemon=True)
-        thread.start()
 
     def init_pygame(self):
         if os.path.exists(RUNNING_INSTANCE_SENTINEL):
@@ -110,10 +107,12 @@ class MILIMP(mili.GenericApp):
             )
             pygame.quit()
             sys.exit()
+        if not os.path.exists("data"):
+            os.mkdir("data")
 
     def init_attributes(self):
         # components
-        self.state = MusicState()
+        self.state = MusicState(self)
         self.playlist_viewer = PlaylistViewerUI(self)
         self.list_viewer = ListViewerUI(self)
         self.yt_search = YTSearchUI(self)
@@ -126,6 +125,8 @@ class MILIMP(mili.GenericApp):
         self.music_fullscreen = MusicFullscreenUI(self)
         self.state_info = StateInfoUI(self)
         self.notifications_ui = NotificationsUI(self)
+        self.backup_save = BackupSaveUI(self)
+        self.health_check = HealthCheckUI(self)
         self.prefabs = UIComponent(self)
         # settings
         self.custom_title = True
@@ -138,7 +139,6 @@ class MILIMP(mili.GenericApp):
         # status
         self.start_style = mili.PADLESS | {"spacing": 0}
         self.start_time = time.time()
-        
         self.view_state = "list"
         self.modal_state = "none"
         self.playlists: list[Playlist] = []
@@ -155,36 +155,20 @@ class MILIMP(mili.GenericApp):
         self.split_screen = False
         self.split_w = self.window.size[0]
         self.split_size = self.window.size
-        
         self.aborted = False
         self.notifications: list[Notification] = []
-        # TEMP REMOVE AFTER COMMIT
-        self.user_framerate = 60
-        self.volume = 1
-        self.loops = True
-        self.shuffle = False
-        self.videoclip_on = True
-        self.videoclip_threaded = True
-        self.vol_before_mute = 1
-        self.need_low_fps = False
-        self.music: MusicData = None
-        self.music_paused = False
-        self.music_index = -1
-        self.music_play_time = 0
-        self.music_play_offset = 0
-        self.music_loops = False
-        self.music_start_time = None
+        self.before_super_fullscreen_height = 0
+        self.super_fullscreen = False
         # bg effect/mili
         self.bg_effect_image = None
         self.bg_black_image = None
-        self.bg_effect = False
         self.bg_cache = mili.ImageCache()
         self.anims = [animation(-3) for i in range(4)]
         self.anim_settings = animation(-5)
         # menu
         self.menu_open = False
         self.menu_data: Playlist | MusicData | PlaylistGroup | YTVideoResult = None
-        self.menu_buttons = None
+        self.menu_buttons: list[MenuButton] = None
         self.menu_pos = None
         # music
         # custom title
@@ -283,9 +267,9 @@ class MILIMP(mili.GenericApp):
         )
         if isinstance(data, dict):
             self.state.volume = data.get("volume", 1)
-            self.loops = data.get("loops", True)
-            self.shuffle = data.get("shuffle", False)
-            self.user_framerate = data.get("fps", 60)
+            self.state.loops = data.get("loops", True)
+            self.state.shuffle = data.get("shuffle", False)
+            self.state.user_framerate = data.get("fps", 60)
             custom_title = data.get("custom_title", True)
             win_pos = safeguard_window(data.get("win_pos", win_pos), True)
             win_size = safeguard_window(data.get("win_size", win_size))
@@ -295,8 +279,8 @@ class MILIMP(mili.GenericApp):
             self.before_maximize_data = data.get("before_maximize_data", None)
             self.strip_youtube_id = data.get("strip_youtube_id", False)
             self.taskbar_height = data.get("taskbar_height", 0)
-            self.videoclip_threaded = data.get("videoclip_threaded", True)
-            self.videoclip_on = data.get("videoclip_on", True)
+            self.state.videoclip_threaded = data.get("videoclip_threaded", True)
+            self.state.videoclip_on = data.get("videoclip_on", True)
             minip = self.music_controls.minip
             minip.last_size, minip.last_pos, minip.last_borderless = data.get(
                 "miniplayer", minip_data
@@ -306,7 +290,7 @@ class MILIMP(mili.GenericApp):
             self.yt_search.fetch_amount = data.get("yt_fetch_amount", 7)
             self.yt_search.search_method = data.get("yt_search_method", "yt-dlp")
             self.yt_search.search_dm.selected = self.yt_search.search_method
-        self.target_framerate = self.user_framerate
+        self.target_framerate = self.state.user_framerate
         if win_pos != self.window.position and win_pos is not None:
             self.window.position = win_pos
         if win_size != self.window.size and win_size is not None:
@@ -389,12 +373,6 @@ class MILIMP(mili.GenericApp):
     def focused(self):
         return self.win_focused or self.yt_search.embed is not None
 
-    @property
-    def music_videoclip(self):
-        if self.music_controls.async_videoclip is None:
-            return None
-        return self.music_controls.async_videoclip.videoclip
-
     def notify(self, kind, message=None, error=False, hidden=False):
         if message is None:
             kind, message = kind
@@ -414,28 +392,11 @@ class MILIMP(mili.GenericApp):
             self.window.borderless = True
             self.window.resizable = True
 
-    def get_music_pos(self):
-        return (
-            self.music_play_offset
-            + (pygame.time.get_ticks() - self.music_play_time) / 1000
-        )
-
-    def set_music_pos(self, pos):
-        if (
-            self.music is None
-            or not self.music.pos_supported
-            or self.music.duration in [None, NotCached]
-        ):
-            return
-        self.music_play_time = pygame.time.get_ticks()
-        self.music_play_offset = pos
-        pygame.mixer.music.set_pos(pos)
-
     def add_to_history(self):
-        pos = self.get_music_pos()
-        data = HistoryData(self.music, pos, self.music.duration)
+        pos = self.state.get_music_pos()
+        data = HistoryData(self.state.music, pos, self.state.music.duration)
         for olddata in self.history_data.copy():
-            if olddata.music is self.music:
+            if olddata.music is self.state.music:
                 self.history_data.remove(olddata)
         self.history_data.append(data)
         if len(self.history_data) > HISTORY_LEN:
@@ -446,92 +407,15 @@ class MILIMP(mili.GenericApp):
             if olddata.music is music:
                 self.history_data.remove(olddata)
 
-    def play_music(self, music: MusicData, idx):
-        if music.pending:
-            self.end_music()
-            return
-        self.need_low_fps = False
-        if self.music_controls.async_videoclip is not None:
-            self.music_controls.async_videoclip.alive = False
-            if self.videoclip_threaded:
-                self.music_controls.async_videoclip.thread.join()
-        self.music_controls.async_videoclip = None
-
-        if self.music is not None:
-            self.add_to_history()
-        if not os.path.exists(music.audiopath):
-            music.playlist.remove(music.audiopath)
-            pygame.display.message_box(
-                "Failed playing music",
-                "The request music was renamed or deleted externally, therefore the path was removed from the playlist.",
-                "error",
-                None,
-                ("Understood",),
-            )
-            return
-        self.music = music
-        self.music_paused = False
-        self.music_index = idx
-        self.music_start_time = time.time()
-        self.music_play_offset = 0
-        if self.music.duration is NotCached:
-            self.music.cache_duration()
-
-        if self.music.isvideo:
-            self.music_controls.async_videoclip = AsyncVideoclipGetter(
-                str(self.music.realpath), self
-            )
-            if self.videoclip_threaded:
-                thread = threading.Thread(
-                    target=self.music_controls.async_videoclip.loop
-                )
-                self.music_controls.async_videoclip.thread = thread
-                thread.start()
-            else:
-                self.music_controls.async_videoclip.load_videoclip()
-
-        self.music_controls.offset = 0
-        self.music_controls.offset_restart_time = pygame.time.get_ticks()
-        self.music_controls.music_videoclip_cover = None
-        self.music_controls.last_videoclip_cover = None
-
-        pygame.mixer.music.load(self.music.audiopath)
-        pygame.mixer.music.play(0)
-        pygame.mixer.music.set_endevent(MUSIC_ENDEVENT)
-        pygame.mixer.music.set_volume(self.volume)
-
-        self.music_play_time = pygame.time.get_ticks()
-        self.discord_presence.update()
-        if self.music_controls.minip.window is not None:
-            self.music_controls.minip.resize_ratio()
-
-    def end_music(self):
-        self.need_low_fps = False
-        if self.music_controls.async_videoclip is not None:
-            self.music_controls.async_videoclip.alive = False
-            if self.videoclip_threaded:
-                self.music_controls.async_videoclip.thread.join()
+    def when_end_music(self):
         self.close_menu()
         if self.modal_state == "fullscreen":
             self.modal_state = "none"
-        if self.music is not None:
-            self.add_to_history()
-        self.music = None
-        self.music_paused = False
-        self.bg_effect = False
-        pygame.mixer.music.stop()
-        pygame.mixer.music.unload()
-        if self.music_controls.minip.window is not None:
-            self.music_controls.minip.close()
-        if self.music_videoclip is not None:
-            self.music_videoclip.close()
-        self.music_controls.async_videoclip = None
         self.discord_presence.update()
-        self.music_controls.clean_ui = False
 
     def save(self):
         self.last_save = pygame.time.get_ticks()
-        if self.music is not None:
+        if self.state.music is not None:
             self.add_to_history()
         playlist_data = [
             {
@@ -552,10 +436,10 @@ class MILIMP(mili.GenericApp):
         write_json(
             "data/settings.json",
             {
-                "volume": self.volume,
-                "loops": self.loops,
-                "shuffle": self.shuffle,
-                "fps": self.user_framerate,
+                "volume": self.state.volume,
+                "loops": self.state.loops,
+                "shuffle": self.state.shuffle,
+                "fps": self.state.user_framerate,
                 "custom_title": self.custom_title,
                 "win_pos": self.window.position,
                 "win_size": self.window.size,
@@ -564,8 +448,8 @@ class MILIMP(mili.GenericApp):
                 "discord_presence": self.discord_presence.active,
                 "strip_youtube_id": self.strip_youtube_id,
                 "taskbar_height": self.taskbar_height,
-                "videoclip_threaded": self.videoclip_threaded,
-                "videoclip_on": self.videoclip_on,
+                "videoclip_threaded": self.state.videoclip_threaded,
+                "videoclip_on": self.state.videoclip_on,
                 "universal_font": self.universal_font,
                 "yt_search": self.yt_search.search_entryline.text,
                 "yt_fetch_amount": self.yt_search.fetch_amount,
@@ -605,13 +489,13 @@ class MILIMP(mili.GenericApp):
             self.save()
 
         prev = self.target_framerate
-        self.target_framerate = self.user_framerate
+        self.target_framerate = self.state.user_framerate
         if (
             not self.focused
             and (
-                self.music_controls.music_videoclip_cover is None
-                or self.music_paused
-                or self.music is None
+                self.state.music_videoclip_cover is None
+                or self.state.music_paused
+                or self.state.music is None
             )
             and (
                 not self.music_controls.minip.focused
@@ -619,12 +503,12 @@ class MILIMP(mili.GenericApp):
             )
         ):
             self.target_framerate = 10
-        elif self.need_low_fps or (
-            self.music is not None
-            and self.music_controls.async_videoclip is not None
-            and self.music_controls.async_videoclip.is_large_media
-            and self.videoclip_threaded
-            and self.videoclip_on
+        elif self.state.need_low_fps or (
+            self.state.music is not None
+            and self.state.async_videoclip is not None
+            and self.state.async_videoclip.is_large_media
+            and self.state.videoclip_threaded
+            and self.state.videoclip_on
         ):
             self.target_framerate = 30
             if prev == 60:
@@ -644,7 +528,7 @@ class MILIMP(mili.GenericApp):
         multy = self.window.size[1] / UI_SIZES[1]
         self.ui_mult = min(1.2, max(0.4, (multx * 0.1 + multy * 1) / 1.1))
 
-        if self.custom_title and not self.music_controls.super_fullscreen:
+        if self.custom_title and not self.super_fullscreen:
             self.tbarh = 30
         else:
             self.tbarh = 0
@@ -674,7 +558,7 @@ class MILIMP(mili.GenericApp):
         self.split_screen = False
         if (
             self.window.size[0] >= self.window.size[1] * 1.4
-            and self.music is not None
+            and self.state.music is not None
             and self.modal_state != "fullscreen"
         ):
             self.split_screen = True
@@ -682,12 +566,12 @@ class MILIMP(mili.GenericApp):
             self.split_size = (self.split_w, self.window.size[1])
 
         self.music_controls.videoclip_rects = []
-        if self.music_controls.async_videoclip is not None:
-            self.music_controls.async_videoclip.active = False
+        if self.state.async_videoclip is not None:
+            self.state.async_videoclip.active = False
 
     def ui(self):
         self.mili.rect({"color": (BG_CV,) * 3, "border_radius": 0})
-        if self.custom_title and not self.music_controls.super_fullscreen:
+        if self.custom_title and not self.super_fullscreen:
             self.mili.rect(
                 {
                     "color": (BORDER_CV,) * 3,
@@ -744,6 +628,10 @@ class MILIMP(mili.GenericApp):
                 self.state_info.ui()
             elif self.modal_state == "notifs":
                 self.notifications_ui.ui()
+            elif self.modal_state == "backup_save":
+                self.backup_save.ui()
+            elif self.modal_state == "health_check":
+                self.health_check.ui()
 
             if not self.split_screen:
                 self.mili.id_checkpoint(ID_POST_OFFSET)
@@ -814,10 +702,8 @@ class MILIMP(mili.GenericApp):
         if not self.custom_borders.dragging and not self.custom_borders.resizing:
             self.custom_borders.cumulative_relative = pygame.Vector2()
 
-        if self.music_controls.async_videoclip is not None:
-            self.music_controls.async_videoclip.rects = (
-                self.music_controls.videoclip_rects
-            )
+        if self.state.async_videoclip is not None:
+            self.state.async_videoclip.rects = self.music_controls.videoclip_rects
 
     def ui_tooltip(self):
         pad = self.mult(2)
@@ -894,7 +780,7 @@ class MILIMP(mili.GenericApp):
             self.yt_search.ui_top_buttons()
 
     def ui_bg_effect(self):
-        if not self.bg_effect:
+        if not self.state.bg_effect:
             return
         self.mili.image(self.bg_effect_image, {"ready": not USE_RENDERER})
         self.mili.image(
@@ -921,19 +807,16 @@ class MILIMP(mili.GenericApp):
                 {"color": (MENU_CV[1],) * 3, "border_radius": "50", "outline": 1}
             )
             for bdata in self.menu_buttons:
-                br = "50"
-                tooltip = None
-                if len(bdata) == 3:
-                    bimage, baction, banim = bdata
-                elif len(bdata) == 4:
-                    if len(bdata[-1]) <= 2:
-                        bimage, baction, banim, br = bdata
-                    else:
-                        bimage, baction, banim, tooltip = bdata
-                elif len(bdata) == 5:
-                    bimage, baction, banim, br, tooltip = bdata
-                br = "50"
-                self.prefabs.ui_image_btn(bimage, baction, banim, 40, br, tooltip, 3)
+                bdata: MenuButton
+                self.prefabs.ui_image_btn(
+                    bdata.icon,
+                    bdata.action,
+                    bdata.animation,
+                    40,
+                    "50",
+                    bdata.tooltip,
+                    3,
+                )
             if (
                 not menu.absolute_hover
                 and any([btn is True for btn in pygame.mouse.get_pressed()])
@@ -963,8 +846,7 @@ class MILIMP(mili.GenericApp):
     def close_menu(self):
         if self.menu_buttons is not None:
             for btndata in self.menu_buttons:
-                anim = btndata[2]
-                anim.goto_a()
+                btndata.animation.goto_a()
         self.menu_open = False
         self.menu_buttons = None
         self.menu_pos = None
@@ -1084,6 +966,12 @@ class MILIMP(mili.GenericApp):
         elif self.modal_state == "notifs":
             if self.notifications_ui.event(event):
                 return
+        elif self.modal_state == "backup_save":
+            if self.backup_save.event(event):
+                return
+        elif self.modal_state == "health_check":
+            if self.health_check.event(event):
+                return
         if self.view_state == "list":
             self.list_viewer.event(event)
         elif self.view_state == "playlist":
@@ -1123,14 +1011,33 @@ class MILIMP(mili.GenericApp):
                 elif Keybinds.check("maximize_window", event):
                     self.action_maximize()
 
-    def quit(self):
+    def quit_abort(self):
         if self.yt_search.embed is not None:
             self.yt_search.embed.close()
-        if self.music_controls.async_videoclip is not None:
-            self.music_controls.async_videoclip.alive = False
-            if self.videoclip_threaded:
-                self.music_controls.async_videoclip.thread.join()
-        self.music_controls.async_videoclip = None
+        if self.state.async_videoclip is not None:
+            self.state.async_videoclip.alive = False
+            if self.state.videoclip_threaded:
+                self.state.async_videoclip.thread.join()
+        self.state.async_videoclip = None
+        if os.path.exists(RUNNING_INSTANCE_SENTINEL):
+            os.remove(RUNNING_INSTANCE_SENTINEL)
+        print("Application quit without saving")
+        pygame.quit()
+        raise SystemExit
+
+    def quit(self):
+        if self.maximized and self.super_fullscreen:
+            self.window.size = (
+                self.window.size[0],
+                self.before_super_fullscreen_height,
+            )
+        if self.yt_search.embed is not None:
+            self.yt_search.embed.close()
+        if self.state.async_videoclip is not None:
+            self.state.async_videoclip.alive = False
+            if self.state.videoclip_threaded:
+                self.state.async_videoclip.thread.join()
+        self.state.async_videoclip = None
         for playlist in self.playlists:
             for music in playlist.musiclist:
                 if music.pending:

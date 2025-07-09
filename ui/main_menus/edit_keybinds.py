@@ -40,7 +40,7 @@ class EditKeybindsUI(UIComponent):
                     "offset": (
                         0,
                         -self.mult(50)
-                        * (self.app.music is not None and not self.app.split_screen)
+                        * (self.state.music is not None and not self.app.split_screen)
                         - self.app.tbarh / 2,
                     ),
                     "blocking": None,
@@ -183,7 +183,7 @@ class EditKeybindsUI(UIComponent):
                     "offset": (
                         0,
                         -self.mult(50)
-                        * (self.app.music is not None and not self.app.split_screen)
+                        * (self.state.music is not None and not self.app.split_screen)
                         - self.app.tbarh / 2,
                     ),
                     "blocking": None,

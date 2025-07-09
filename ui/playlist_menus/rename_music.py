@@ -111,8 +111,8 @@ class RenameMusicUI(UIComponent):
         self.close()
 
     def final_rename(self, new_path, new_stem):
-        if self.music == self.app.music:
-            self.app.end_music()
+        if self.music == self.state.music:
+            self.state.end_music()
         self.app.remove_from_history(self.music)
 
         try:

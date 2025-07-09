@@ -1,8 +1,9 @@
 import mili
 import pygame
-import threading
+import zipfile
 import webbrowser
 from ui.common import *
+import tkinter.filedialog as filedialog
 
 
 class SettingsUI(UIComponent):
@@ -11,7 +12,7 @@ class SettingsUI(UIComponent):
         self.anim_handle = animation(-3)
         self.anim_info = animation(-3)
         self.anim_log = animation(-3)
-        self.anims = [animation(-3) for i in range(11)]
+        self.anims = [animation(-3) for i in range(14)]
         self.cache = mili.ImageCache()
         self.slider = mili.Slider(
             {"lock_y": True, "handle_size": (10, 10), "drag_area": False}
@@ -78,46 +79,49 @@ class SettingsUI(UIComponent):
         self.ui_buttons_bottom()
 
     def ui_buttons_top(self):
+        self.mili.id_checkpoint(ID_OFFSET + 131000)
         with self.mili.begin(
             None,
             {
-                "resizex": True,
+                "fillx": True,
                 "resizey": True,
                 "axis": "x",
                 "clip_draw": False,
                 "align": "center",
                 "blocking": None,
+                "layout": "grid",
+                "grid_align": "center",
             }
             | mili.PADLESS,
         ):
             vol_image = ICONS.vol0
-            if self.app.volume >= 0.5:
+            if self.state.volume >= 0.5:
                 vol_image = ICONS.vol1
-            elif self.app.volume > 0.05:
+            elif self.state.volume > 0.05:
                 vol_image = ICONS.vollow
             self.ui_image_btn(
                 vol_image,
-                self.action_mute,
+                self.state.mute,
                 self.anims[0],
                 tooltip="Mute/unmute the music",
             )
 
             self.ui_image_btn(
-                ICONS.loopon if self.app.loops else ICONS.loopoff,
+                ICONS.loopon if self.state.loops else ICONS.loopoff,
                 self.action_loop,
                 self.anims[1],
-                br="50" if not self.app.loops else "5",
+                br="50" if not self.state.loops else "5",
                 tooltip="Disable playlist looping"
-                if self.app.loops
+                if self.state.loops
                 else "Enable playlist looping",
             )
             self.ui_image_btn(
-                ICONS.shuffleon if self.app.shuffle else ICONS.shuffleoff,
+                ICONS.shuffleon if self.state.shuffle else ICONS.shuffleoff,
                 self.action_shuffle,
                 self.anims[2],
-                br="50" if not self.app.shuffle else "5",
+                br="50" if not self.state.shuffle else "5",
                 tooltip="Enable playlist shuffling"
-                if self.app.shuffle
+                if self.state.shuffle
                 else "Enable playlist shuffle",
             )
 
@@ -125,15 +129,24 @@ class SettingsUI(UIComponent):
         with self.mili.begin(
             None,
             {
-                "resizex": True,
+                "fillx": True,
                 "resizey": True,
                 "axis": "x",
+                "layout": "grid",
                 "clip_draw": False,
                 "align": "center",
                 "blocking": None,
+                "grid_align": "center",
             }
             | mili.PADLESS,
         ):
+            self.ui_image_btn(
+                ICONS.health,
+                self.action_health_check,
+                self.anims[13],
+                br="50",
+                tooltip="View unused files",
+            )
             self.ui_image_btn(
                 ICONS.history,
                 self.action_history,
@@ -147,17 +160,26 @@ class SettingsUI(UIComponent):
                 br="5",
                 tooltip="Open keybindings",
             )
+            self.ui_image_btn(
+                ICONS.backup_save,
+                self.action_backup_save,
+                self.anims[11],
+                br="5",
+                tooltip="Create a backup",
+            )
 
     def ui_buttons_bottom(self):
         with self.mili.begin(
             None,
             {
-                "resizex": True,
+                "fillx": True,
                 "resizey": True,
                 "axis": "x",
+                "layout": "grid",
                 "clip_draw": False,
                 "align": "center",
                 "blocking": None,
+                "grid_align": "center",
             }
             | mili.PADLESS,
         ):
@@ -184,29 +206,36 @@ class SettingsUI(UIComponent):
                 ),
             )
             self.ui_image_btn(
-                ICONS.fps60 if self.app.user_framerate == 60 else ICONS.fps30,
+                ICONS.fps60 if self.state.user_framerate == 60 else ICONS.fps30,
                 self.action_fps,
                 self.anims[6],
                 br="15",
                 tooltip="Set the framerate to 30"
-                if self.app.user_framerate == 60
+                if self.state.user_framerate == 60
                 else "Set the framerate to 60",
             )
             self.ui_image_btn(
-                ICONS.video_track if self.app.videoclip_on else ICONS.video_off,
+                ICONS.backup_load,
+                self.action_backup_load,
+                self.anims[12],
+                br="5",
+                tooltip="Load a previously saved backup",
+            )
+            self.ui_image_btn(
+                ICONS.video_track if self.state.videoclip_on else ICONS.video_off,
                 self.action_videoclip,
                 self.anims[8],
                 br="15",
                 tooltip="Disable videoclip"
-                if self.app.videoclip_threaded
+                if self.state.videoclip_threaded
                 else "Enable videoclip",
             )
             self.ui_image_btn(
-                ICONS.threadon if self.app.videoclip_threaded else ICONS.threadoff,
-                self.action_thread,
+                ICONS.threadon if self.state.videoclip_threaded else ICONS.threadoff,
+                self.state.toggle_thread,
                 self.anims[9],
                 tooltip="Disable videoclip multithreading"
-                if self.app.videoclip_threaded
+                if self.state.videoclip_threaded
                 else "Enable videoclip multithreading",
             )
             self.ui_image_btn(
@@ -230,7 +259,7 @@ class SettingsUI(UIComponent):
             self.slider.update_area(bar)
             self.mili.rect({"color": (30,) * 3})
 
-            if self.app.volume > 0:
+            if self.state.volume > 0:
                 self.mili.rect_element(
                     {"color": (110,) * 3},
                     (0, 0, bar.data.rect.w * self.slider.valuex, bar.data.rect.h),
@@ -255,7 +284,7 @@ class SettingsUI(UIComponent):
                 mposx = pygame.mouse.get_pos()[0]
                 relmpos = mposx - bar.data.absolute_rect.x
                 volume = pygame.math.clamp(relmpos / bar.data.absolute_rect.w, 0, 1)
-                self.change_volume(volume)
+                self.state.change_volume(volume)
                 self.slider.valuex = volume
                 self.app.cursor_hover = True
             elif bar.absolute_hover:
@@ -282,12 +311,60 @@ class SettingsUI(UIComponent):
                 ):
                     self.anim_handle.goto_a()
                 if handle.left_pressed:
-                    self.change_volume()
+                    self.state.change_volume(self.slider.valuex)
                 else:
-                    self.slider.valuex = self.app.volume
+                    self.slider.valuex = self.state.volume
                 if handle.hovered or handle.unhover_pressed:
                     self.app.cursor_hover = True
         return handle
+    
+    def action_health_check(self):
+        self.app.modal_state = "health_check"
+        self.app.health_check.refresh()
+
+    def action_backup_load(self):
+        button = pygame.display.message_box(
+            "Confirm loading backup",
+            "After you select a ZIP backup, this action will replace the selected content. Files in the data folder that are not present in the backup won't be deleted. You need to make the backup with the application for it to work correctly. It is advised to create a backup of the current state before this operation in case anything goes wrong.",
+            "info",
+            buttons=["Load Backup", "Cancel"],
+        )
+        if button == 1:
+            return
+        path = filedialog.askopenfilename(
+            defaultextension="zip", filetypes=[(".zip", "ZIP")]
+        )
+        if not path:
+            return
+        try:
+            with zipfile.ZipFile(
+                path, "r", zipfile.ZIP_DEFLATED, compresslevel=9
+            ) as zfile:
+                files = zfile.namelist()
+                print(files)
+                # BACKUP
+        except Exception as e:
+            self.app.save()
+            messagebox_notify(
+                self.app,
+                NOTIF.ERROR,
+                "Loading backup failed",
+                f"Loading the backup failed because of the exception: '{e}', therefore it has been aborted and the current app state has been saved to mitigate damages.",
+                "error",
+                buttons=["Understood"],
+            )
+            return
+        pygame.display.message_box(
+            "Backup loaded",
+            "The backup loaded succesfully. The app will now terminate without saving, to avoid overriding the data. The new data from the backup will be available at the next startup.",
+            "info",
+            buttons=["Understood"],
+        )
+        self.app.quit_abort()
+
+    def action_backup_save(self):
+        self.app.modal_state = "backup_save"
+        self.app.backup_save.refresh_size()
 
     def action_notifs(self):
         self.app.modal_state = "notifs"
@@ -315,27 +392,7 @@ class SettingsUI(UIComponent):
         self.app.save_use_renderer = not self.app.save_use_renderer
 
     def action_videoclip(self):
-        self.app.videoclip_on = not self.app.videoclip_on
-
-    def action_thread(self):
-        getter = self.app.music_controls.async_videoclip
-        if getter is None or self.app.music is None:
-            self.app.videoclip_threaded = not self.app.videoclip_threaded
-            return
-        if self.app.videoclip_threaded:
-            getter.alive = False
-            getter.close_on_kill = False
-            getter.thread.join()
-            getter.close_on_kill = True
-            getter.remake_videoclip = True
-        else:
-            getter.first = True
-            thread = threading.Thread(target=getter.loop)
-            getter.alive = True
-            getter.thread = thread
-            getter.remake_videoclip = True
-            thread.start()
-        self.app.videoclip_threaded = not self.app.videoclip_threaded
+        self.state.videoclip_on = not self.state.videoclip_on
 
     def action_discord(self):
         self.app.discord_presence.toggle()
@@ -344,30 +401,16 @@ class SettingsUI(UIComponent):
         self.app.modal_state = "history"
 
     def action_fps(self):
-        if self.app.user_framerate == 60:
-            self.app.user_framerate = 30
+        if self.state.user_framerate == 60:
+            self.state.user_framerate = 30
         else:
-            self.app.user_framerate = 60
+            self.state.user_framerate = 60
 
     def action_shuffle(self):
-        self.app.shuffle = not self.app.shuffle
-
-    def change_volume(self, value=None):
-        if value is None:
-            value = self.slider.valuex
-        self.app.volume = pygame.math.clamp(value, 0, 1)
-        pygame.mixer.music.set_volume(self.app.volume)
-
-    def action_mute(self):
-        if self.app.volume > 0:
-            self.app.vol_before_mute = self.app.volume
-            self.app.volume = 0
-        else:
-            self.app.volume = self.app.vol_before_mute
-        pygame.mixer.music.set_volume(self.app.volume)
+        self.state.shuffle = not self.state.shuffle
 
     def action_loop(self):
-        self.app.loops = not self.app.loops
+        self.state.loops = not self.state.loops
 
     def action_keybinds(self):
         self.app.modal_state = "keybinds"

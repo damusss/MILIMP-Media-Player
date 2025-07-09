@@ -29,7 +29,7 @@ class StateInfoUI(UIComponent):
                 {
                     "fillx": "60" if self.app.split_w > 1500 else "90",
                     "filly": "70"
-                    if self.app.music is not None or self.app.split_w < 800
+                    if self.state.music is not None or self.app.split_w < 800
                     else "50",
                     "align": "center",
                     "spacing": self.mult(13),
@@ -66,62 +66,63 @@ class StateInfoUI(UIComponent):
                     self.scrollbar.update(cont)
                     self.ui_scrollbar()
                     app = self.app
-                    self.ui_column("Volume", app.volume)
+                    state = self.state
+                    self.ui_column("Volume", state.volume)
                     self.ui_column(
                         "Music Name",
-                        parse_music_stem(app, app.music.realstem)
-                        if app.music is not None
+                        parse_music_stem(app, state.music.realstem)
+                        if state.music is not None
                         else "Not playing",
-                        active=app.music is not None,
+                        active=state.music is not None,
                     )
-                    self.ui_column("Shuffle Playlist", app.shuffle, boolean=True)
-                    self.ui_column("Playlist Loops", app.loops, boolean=True)
-                    if app.music is not None:
-                        self.ui_column("Music Paused", app.music_paused, boolean=True)
-                        self.ui_column("Music Loops", app.music_loops, boolean=True)
-                        mpos = app.get_music_pos()
+                    self.ui_column("Shuffle Playlist", state.shuffle, boolean=True)
+                    self.ui_column("Playlist Loops", state.loops, boolean=True)
+                    if state.music is not None:
+                        self.ui_column("Music Paused", state.music_paused, boolean=True)
+                        self.ui_column("Music Loops", state.music_loops, boolean=True)
+                        mpos = state.get_music_pos()
                         duration = ""
-                        if isinstance(app.music.duration, float):
-                            duration = f" ({format_music_time(mpos, app.music.duration)} | {(mpos / app.music.duration) * 100:.2f}%)"
+                        if isinstance(state.music.duration, float):
+                            duration = f" ({format_music_time(mpos, state.music.duration)} | {(mpos / state.music.duration) * 100:.2f}%)"
                         self.ui_column("Music Timestamp", f"{mpos:.2f}{duration}")
                         self.ui_column(
-                            "Music Is Video", app.music.isvideo, boolean=True
+                            "Music Is Video", state.music.isvideo, boolean=True
                         )
-                        if app.music.isvideo:
-                            frame = self.app.music_controls.async_videoclip
+                        if state.music.isvideo:
+                            frame = state.async_videoclip
                             if frame.videoclip is not None:
                                 if frame.original_size is not None:
                                     self.ui_column(
                                         "Video Resolution",
                                         f"{int(frame.videoclip.size[0])}x{int(frame.videoclip.size[1])}/{int(frame.original_size.x)}x{int(frame.original_size.y)} px",
                                     )
-                                if isinstance(self.app.music.duration, float):
+                                if isinstance(state.music.duration, float):
                                     frames = int(
-                                        self.app.music.duration * frame.videoclip.fps
+                                        state.music.duration * frame.videoclip.fps
                                     )
                                     frameno = int(
-                                        frames * (mpos / self.app.music.duration)
+                                        frames * (mpos / state.music.duration)
                                     )
                                     self.ui_column("Video Frame", f"{frameno}/{frames}")
                                 self.ui_column(
                                     "Video Thread Framerate",
                                     (
                                         "Music paused"
-                                        if app.music_paused
+                                        if state.music_paused
                                         else f"{frame.current_fps:.2f}/{frame.videoclip.fps:.0f} FPS"
                                     )
-                                    if app.videoclip_threaded
+                                    if state.videoclip_threaded
                                     else "Not multithreaded",
-                                    app.videoclip_threaded and not app.music_paused,
+                                    state.videoclip_threaded and not state.music_paused,
                                 )
-                    self.ui_column("User Framerate", f"{app.user_framerate} FPS")
+                    self.ui_column("User Framerate", f"{state.user_framerate} FPS")
                     self.ui_column(
                         "Current Framerate",
                         f"{app.clock.get_fps():.2f}/{app.target_framerate} FPS",
                     )
-                    self.ui_column("Videoclip On", app.videoclip_on, boolean=True)
+                    self.ui_column("Videoclip On", state.videoclip_on, boolean=True)
                     self.ui_column(
-                        "Videoclip Threaded", app.videoclip_threaded, boolean=True
+                        "Videoclip Threaded", state.videoclip_threaded, boolean=True
                     )
                     self.ui_column("Window Focused", app.focused, boolean=True)
                     self.ui_column(

@@ -111,8 +111,8 @@ class RenamePlaylistUI(UIComponent):
                     ("Understood",),
                 )
                 return
-        if self.app.music is not None and self.app.music.playlist is self.app.menu_data:
-            self.app.end_music()
+        if self.state.music is not None and self.state.music.playlist is self.app.menu_data:
+            self.state.end_music()
         self.final_rename(name)
         self.close()
 
