@@ -11,8 +11,24 @@ class MusicFullscreenUI(UIComponent):
         self.last_move = pygame.time.get_ticks()
         self.last_mouse = pygame.Vector2()
         self.last_frame_click = pygame.time.get_ticks()
+        self.super_fullscreen_on_hover = False
+        self.bottom_hover_time = pygame.time.get_ticks()
 
     def ui(self):
+        mouse = pygame.mouse.get_pos()
+        ws = self.app.window.size
+        if (
+            self.app.custom_behavior.fullscreen
+            and self.app.super_fullscreen
+            and (
+                pygame.Rect(0, ws[1] - 5, ws[0], 5).collidepoint(mouse)
+                or pygame.Rect(0, 0, ws[0], 5).collidepoint(mouse)
+            )
+        ):
+            self.app.super_fullscreen = False
+            self.super_fullscreen_on_hover = True
+            self.bottom_hover_time = pygame.time.get_ticks()
+
         self.mili.id_checkpoint(ID_OFFSET + 120000)
         if self.state.music is None:
             self.close()
@@ -27,6 +43,7 @@ class MusicFullscreenUI(UIComponent):
 
             cover = self.state.get_music_cover()
             if cover is None:
+                self.close_superfullscreen()
                 self.close()
             else:
                 it = self.mili.element(
@@ -40,21 +57,36 @@ class MusicFullscreenUI(UIComponent):
                     ),
                     {"fillx": True},
                 )
-                scaled, cover = self.state.get_scaled_cover(cover, it, True)
+                ready = False
+                if self.state.async_videoclip is not None:
+                    self.state.async_videoclip.main_rect.set_rect(it.data.rect)
+                    cover, ready = self.state.async_videoclip.main_rect.get_or(cover)
                 self.mili.image(
                     cover,
-                    {"cache": self.music_cache, "ready": scaled} | mili.PADLESS,
+                    {"cache": self.music_cache, "ready": ready} | mili.PADLESS,
                 )
                 if it.hovered:
                     self.app.cursor_hover = True
-                if it.left_just_released:
+                if it.data.absolute_rect.inflate(0, -self.mult(70 * 2)).collidepoint(
+                    mouse
+                ):
+                    if (
+                        pygame.time.get_ticks() - self.bottom_hover_time >= 100
+                        and self.super_fullscreen_on_hover
+                    ):
+                        if self.app.custom_behavior.fullscreen:
+                            self.app.super_fullscreen = True
+                        self.super_fullscreen_on_hover = False
+                if it.left_just_released and self.app.can_interact():
                     if pygame.time.get_ticks() - self.last_frame_click <= 200:
-                        if self.app.super_fullscreen:
-                            self.close_superfullscreen()
-                        else:
-                            self.close()
-                    self.app.music_controls.clean_ui = False
+                        self.close_superfullscreen()
+                        self.close()
                     self.app.state.pause()
+                    self.last_frame_click = pygame.time.get_ticks()
+                if it.right_clicked:
+                    if pygame.time.get_ticks() - self.last_frame_click <= 200:
+                        self.close_superfullscreen()
+                        self.close()
                     self.last_frame_click = pygame.time.get_ticks()
             if not self.app.super_fullscreen or (
                 pygame.time.get_ticks() - self.last_move <= 2000
@@ -81,11 +113,7 @@ class MusicFullscreenUI(UIComponent):
         pygame.mouse.set_visible(True)
         if self.app.super_fullscreen:
             self.app.super_fullscreen = False
-            if self.app.maximized:
-                self.app.window.size = (
-                    self.app.window.size[0],
-                    self.app.before_super_fullscreen_height,
-                )
+            self.app.custom_behavior.fullscreen_off()
             return True
         return False
 

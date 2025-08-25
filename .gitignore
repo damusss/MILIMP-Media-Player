@@ -1,6 +1,7 @@
 __runninginstance__
 __pycache__/
 *.exe
+data_path
 data/*
 build/
 dist/

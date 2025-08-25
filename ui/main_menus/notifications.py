@@ -25,7 +25,7 @@ class NotificationsUI(UIComponent):
             if shadowit.left_just_released:
                 self.back()
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
             with self.mili.begin(
                 (0, 0, 0, 0),
@@ -50,7 +50,7 @@ class NotificationsUI(UIComponent):
                 ):
                     self.mili.text_element(
                         "Notification Log",
-                        {"size": self.mult(26)},
+                        {"size": self.mult_fs(26)},
                         None,
                         mili.CENTER | {"blocking": None},
                     )
@@ -83,7 +83,7 @@ class NotificationsUI(UIComponent):
                         self.mili.text_element(
                             "No notifications yet",
                             {
-                                "size": self.mult(16),
+                                "size": self.mult_fs(16),
                                 "color": (180,) * 3,
                             },
                         )
@@ -119,7 +119,7 @@ class NotificationsUI(UIComponent):
             self.mili.text_element(
                 time + notif.message,
                 {
-                    "size": self.mult(16),
+                    "size": self.mult_fs(16),
                     "color": "red" if notif.error else (180,) * 3,
                     "rich": True,
                     "wraplen": cont.data.rect.w - imgsize,
@@ -128,7 +128,7 @@ class NotificationsUI(UIComponent):
                 },
             )
         self.mili.hline_element(
-            {"size": 1, "color": (80,) * 3}, (0, 0, 0, 1), {"fillx": True}
+            {"size": 1, "color": (80,) * 3}, (0, 0, 0, 1), {"fillx": "92", "offset": self.scroll.get_offset()}
         )
 
     def action_show(self):

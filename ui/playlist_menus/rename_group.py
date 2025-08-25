@@ -2,15 +2,14 @@ import os
 import mili
 import pygame
 from ui.common import *
-from ui.common.data import PlaylistGroup
-from ui.common.entryline import UIEntryline
+from ui.common.data import PlaylistGroup, Entryline
 
 
 class RenameGroupUI(UIComponent):
     def init(self):
         self.anim_close = animation(-5)
         self.anim_create = animation(-3)
-        self.entryline = UIEntryline("Enter name...", False)
+        self.entryline = Entryline(self.app, "Enter name...", False)
         self.cache = mili.ImageCache()
         self.group: PlaylistGroup = None
 
@@ -23,7 +22,7 @@ class RenameGroupUI(UIComponent):
             if shadowit.left_just_released:
                 self.close()
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
 
             with self.mili.begin(
@@ -47,22 +46,20 @@ class RenameGroupUI(UIComponent):
     def ui_modal_content(self):
         self.mili.text_element(
             "Rename Group",
-            {"size": self.mult(26)},
+            {"size": self.mult_fs(26)},
             None,
             mili.CENTER | {"blocking": None},
         )
         self.entryline.update(self.app)
         self.mili.element(None, {"blocking": None})
         self.entryline.ui(
-            self.mili,
             pygame.Rect(
                 0,
                 0,
-                mili.percentage(80, self.app.split_w / 1.35),
+                0,
                 self.mult(35),
             ),
-            {"align": "center"},
-            self.mult,
+            {"align": "center", "fillx": "90"},
         )
         self.ui_image_btn(
             ICONS.confirm,

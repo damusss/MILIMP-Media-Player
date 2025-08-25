@@ -1,24 +1,245 @@
 import io
 import re
 import json
-import shutil
 import pygame
+import signal
+import shutil
+import datetime
 import webbrowser
 import subprocess
 import urllib.error
 import urllib.request
 from ui.common import *
-from ui.common.data import YTVideoFormat, YTVideoResult
+from ui.common.data import YTVideoFormat, YTVideoResult, Playlist
 
 if typing.TYPE_CHECKING:
     from ui.yt_search import YTSearchUI
     from ui.yt_menus.yt_download import YTDownloadUI
     from ui.yt_menus.yt_playlist import YTPlaylistUI
+    from ui.playlist_viewer import PlaylistViewerUI
 
 try:
     import youtubesearchpython as fast_yt_search
 except ImportError:
     fast_yt_search = None
+
+
+class YTPlaylistSyncAsync:
+    def __init__(self, ui: "PlaylistViewerUI", playlist: "Playlist"):
+        self.ui = ui
+        self.playlist = playlist
+        self.alive = False
+        self.thread = None
+        self.videos_to_download = []
+        self.downloading = False
+        self.force_quit = False
+        self.process = None
+        self.video_covers = {}
+        self.downloading_video = None
+
+    def sync_async(self):
+        folder = f"{DATA_PATH}/yt_playlists/{self.playlist.name}"
+        if not os.path.exists(folder):
+            os.mkdir(folder)
+        try:
+            command = (
+                f'yt-dlp --flat-playlist --dump-single-json "{self.playlist.yt_link}"'
+            )
+            print(f"EXECUTING FOREIGN COMMAND <{command}>")
+            output = subprocess.check_output(
+                command, creationflags=SUBPROCESS_FLAGS
+            ).decode(errors="replace")
+            obj = json.loads(output)
+            metadata = save_playlist_metadata(
+                obj, f"{DATA_PATH}/yt_playlists/{self.playlist.name}/{self.playlist.name}.json"
+            )
+            name = obj.get("title", self.playlist.yt_name)
+            self.playlist.yt_name = name
+            self.playlist.yt_metadata = metadata
+            self.videos_to_download = list(metadata["videos"].values())
+            if metadata["thumbnail"] is not None:
+                cover = get_yt_cover_async(metadata["thumbnail"])
+                if cover is not None:
+                    self.playlist.cover = cover
+        except Exception as e:
+            notify_error(
+                self.ui.app,
+                f"Could not sync playlist '{self.playlist.yt_link}' because of exception '{e}'",
+                hidden=True,
+            )
+            return
+        while self.alive:
+            if not self.downloading:
+                if len(self.videos_to_download) <= 0:
+                    self.alive = False
+                    self.ui.app.notify(
+                        NOTIF.CONFIRM,
+                        f"YouTube Playlist '{self.playlist.yt_name}' finished syncing.",
+                    )
+                    return
+                cur_ids = [music.yt_id for music in self.playlist.musiclist]
+                for new_video in list(self.videos_to_download):
+                    if new_video["id"] in cur_ids:
+                        self.videos_to_download.remove(new_video)
+                        print(f"Was already downloaded: {new_video['title']}")
+                        continue
+                    self.download_video(new_video)
+                    break
+            elif self.process is not None:
+                returncode = self.process.poll()
+                if returncode is not None:
+                    self.videos_to_download.remove(self.downloading_video)
+                    if returncode != 0:
+                        notify_error(
+                            self.ui.app,
+                            f"Could not download {self.downloading_video['title']}",
+                        )
+                    self.downloading = False
+                    self.downloading_video = None
+                    self.ui.yt_need_refresh = True
+        if self.force_quit:
+            if sys.platform == "win32":
+                subprocess.run(f"taskkill /F /T /PID {self.process.pid}", shell=True)
+            else:
+                os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+            return
+        self.ui.app.notify(
+            ICONS.close,
+            f"Syncing interrupted for YouTube Playlist '{self.playlist.yt_name}'",
+        )
+
+    def download_video(self, video):
+        self.downloading = True
+        self.downloading_video = video
+        if video["thumbnail"] is not None:
+            cover = get_yt_cover_async(video["thumbnail"])
+            if cover is not None:
+                self.video_covers[video["id"]] = cover
+        command = f'yt-dlp -P "{DATA_PATH}/yt_playlists/{self.playlist.name}" {video["url"]}'
+        print(f"Downloading {video['title']}")
+        print(f"EXECUTING FOREIGN COMMAND <{command}>")
+        self.process = subprocess.Popen(command, creationflags=SUBPROCESS_FLAGS)
+
+
+class YTPlaylistSyncAsyncOLD:
+    def __init__(self, ui, playlist: "Playlist"):
+        self.ui = ui
+        self.playlist = playlist
+        self.alive = False
+        self.thread = None
+        self.last_line = ""
+
+    def sync_async(self):
+        self.sync_title_async()
+        folder = f"{DATA_PATH}/yt_playlists/{self.playlist.name}"
+        if not os.path.exists(folder):
+            os.mkdir(folder)
+        command = f'yt-dlp -P "{folder}" "{self.playlist.yt_link}"'
+        print(f"EXECUTING FOREIGN COMMAND <{command}>")
+        if sys.platform == "win32":
+            self.process = subprocess.Popen(
+                command,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+                text=True,
+                stderr=subprocess.STDOUT,
+                stdout=subprocess.PIPE,
+            )
+        else:
+            self.process = subprocess.Popen(
+                command,
+                preexec_fn=os.setsid,
+                text=True,
+                stderr=subprocess.STDOUT,
+                stdout=subprocess.PIPE,
+            )
+        while self.alive:
+            if self.process.poll() is not None:
+                self.alive = False
+            self.last_line = self.process.stdout.readline().strip()
+        if sys.platform == "win32":
+            subprocess.run(f"taskkill /F /T /PID {self.process.pid}", shell=True)
+        else:
+            os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+        self.process.wait()
+        self.thread = None
+        self.last_line = ""
+
+    def sync_title_async(self):
+        try:
+            command = (
+                f'yt-dlp --flat-playlist --dump-single-json "{self.playlist.yt_link}"'
+            )
+            print(f"EXECUTING FOREIGN COMMAND <{command}>")
+            output = subprocess.check_output(
+                command, creationflags=SUBPROCESS_FLAGS
+            ).decode(errors="replace")
+            obj = json.loads(output)
+            with open("temp.json", "w") as file:
+                json.dump(obj, file)
+            name = obj.get("title", self.playlist.yt_name)
+            if name != self.playlist.yt_name:
+                self.playlist.yt_name = name
+        except Exception as e:
+            notify_error(
+                self.ui.app,
+                f"Could not sync playlist name of '{self.playlist.yt_link}' because of exception '{e}'",
+                hidden=True,
+            )
+
+
+def save_playlist_metadata(raw: dict, path):
+    meta = {
+        "id": raw.get("id", None),
+        "name": raw.get("title", None),
+        "availability": raw.get("availability", "unavailable"),
+        "description": raw.get("description", ""),
+        "sync_date": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "modified_date": raw.get("modified_date", None),
+        "views": raw.get("view_count", None),
+        "count": raw.get("playlist_count", None),
+        "channel_name": raw.get("channel", None),
+        "channel_id": raw.get("channel_id", None),
+        "channel_url": raw.get("channel_url", None),
+        "thumbnail": None,
+        "videos": {},
+    }
+    biggest_thumbnail = None
+    biggest_size = 0
+    for thumbnail in raw.get("thumbnails", []):
+        size = thumbnail.get("width", 0) * thumbnail.get("height", 0)
+        if size > biggest_size:
+            biggest_size = size
+            biggest_thumbnail = thumbnail.get("url", None)
+    meta["thumbnail"] = biggest_thumbnail
+    for entry in raw.get("entries", []):
+        entry: dict
+        id_ = entry.get("id", None)
+        url = entry.get("url", None)
+        if id_ is None or url is None:
+            continue
+        video = {
+            "id": id_,
+            "url": url,
+            "title": entry.get("title", None),
+            "duration": entry.get("duration", None),
+            "channel_id": entry.get("channel_id", None),
+            "channel_name": entry.get("channel", None),
+            "channel_url": entry.get("channel_url", None),
+            "views": entry.get("view_count", None),
+            "thumbnail": None,
+        }
+        biggest_thumbnail = None
+        biggest_size = 0
+        for thumbnail in entry.get("thumbnails", []):
+            size = thumbnail.get("width", 0) * thumbnail.get("height", 0)
+            if size > biggest_size:
+                biggest_size = size
+                biggest_thumbnail = thumbnail.get("url", None)
+        video["thumbnail"] = biggest_thumbnail
+        meta["videos"][id_] = video
+    with open(path, "w") as mfile:
+        json.dump(meta, mfile)
+    return meta
 
 
 def get_playlist_name_async(playlist_ui: "YTPlaylistUI"):
@@ -33,15 +254,19 @@ def get_playlist_name_async(playlist_ui: "YTPlaylistUI"):
         playlist_ui.playlist_name = obj.get(
             "title", playlist_ui.playlist_url.split("playlist?list=")[-1]
         )
+        playlist_ui.playlist_meta = obj
+        playlist_ui.yt_searching = False
     except subprocess.CalledProcessError as e:
         playlist_ui.error = notify_error(
             playlist_ui.app, f"subprocess error: '{e.output}'", hidden=True
         )
+        playlist_ui.yt_searching = False
         return
     except Exception as e:
         playlist_ui.error = notify_error(
             playlist_ui.app, f"unexpected error: '{e}'", hidden=True
         )
+        playlist_ui.yt_searching = False
         return
 
 
@@ -65,9 +290,28 @@ def get_yt_image_async(file_path, url):
     return image
 
 
+def get_yt_cover_async(url):
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            },
+        )
+        with urllib.request.urlopen(req) as response:
+            if response.status != 200:
+                return
+            image_data = response.read()
+        image_file = io.BytesIO(image_data)
+        image = pygame.image.load(image_file).convert_alpha()
+    except Exception:
+        return
+    return image
+
+
 def download_thumbail_async(video: "YTVideoResult", ui: "YTSearchUI", error_img):
     try:
-        file_path = f"data/yt_temp/{video.thumbnail}.png"
+        file_path = f"{DATA_PATH}/yt_temp/{video.thumbnail}.png"
         image = get_yt_image_async(file_path, video.thumb_url)
         ui.downloading_thumbs.remove(video.thumbnail)
         ui.thubnails[video.thumbnail] = image
@@ -86,7 +330,7 @@ def download_thumbail_async(video: "YTVideoResult", ui: "YTSearchUI", error_img)
 
 def download_channel_quick_async(video: "YTVideoResult", ui: "YTSearchUI", error_img):
     try:
-        file_path = f"data/yt_temp/channel_{video.channel_id}.png"
+        file_path = f"{DATA_PATH}/yt_temp/channel_{video.channel_id}.png"
         image = get_yt_image_async(file_path, video.quick_pfp_url)
         ui.downloading_channels.remove(video.channel_id)
         ui.channel_covers[video.channel_id] = image
@@ -108,7 +352,7 @@ def download_channel_quick_async(video: "YTVideoResult", ui: "YTSearchUI", error
 
 def save_thumbnail_async(video: "YTVideoResult", ui: "YTSearchUI"):
     try:
-        filename = f"data/yt_downloads/thumbnail_{video.title_fn}.png"
+        filename = f"{DATA_PATH}/yt_downloads/thumbnail_{video.title_fn}.png"
         get_yt_image_async(filename, video.hd_thumb_url)
         ui.app.notify(NOTIF.DOWNLOAD, f"Downloaded thumbnail to '{filename}'")
     except (
@@ -134,11 +378,11 @@ def download_channel_async(video: "YTVideoResult", ui: "YTSearchUI", error_img):
         ui.channel_covers[video.channel_id] = error_img
         return
     try:
-        file_path = f"data/yt_temp/channel_{video.channel_id}.jpg"
+        file_path = f"{DATA_PATH}/yt_temp/channel_{video.channel_id}.jpg"
         if os.path.exists(file_path):
             image = pygame.image.load(file_path)
         else:
-            command = f'yt-dlp -o "data/yt_temp/channel_{video.channel_id}" --write-thumbnail --playlist-items 0 {video.channel_url}'
+            command = f'yt-dlp -o "{DATA_PATH}/yt_temp/channel_{video.channel_id}" --write-thumbnail --playlist-items 0 {video.channel_url}'
             print(f"EXECUTING FOREIGN COMMAND <{command}>")
             subprocess.run(command, creationflags=SUBPROCESS_FLAGS)
             image = pygame.image.load(file_path).convert_alpha()
@@ -315,7 +559,7 @@ def check_ffmpeg():
 def download_yt_default_async(
     ui: "YTSearchUI", video: "YTVideoResult", fmt: "YTVideoFormat"
 ):
-    filename = f"data/yt_downloads/{video.channel_fn}_{video.title_fn}"
+    filename = f"{DATA_PATH}/yt_downloads/{video.channel_fn}_{video.title_fn}"
     delete_yt_if_exists(filename + ".webm")
     command = f'yt-dlp -o "{filename}" {video.url}'
     print(f"EXECUTING FOREIGN COMMAND <{command}>")
@@ -337,7 +581,7 @@ def download_yt_async(
     extra = ""
     if fmt.type == "audio" and not internal and fmt.ext == "webm":
         extra = "novideo"
-    filename = f"data/yt_downloads/{vidname}_{fmt.id}{extra}.{fmt.ext}"
+    filename = f"{DATA_PATH}/yt_downloads/{vidname}_{fmt.id}{extra}.{fmt.ext}"
     delete_yt_if_exists(filename)
     command = f'yt-dlp -o "{filename}" -f {fmt.id} {video.url}'
     print(f"EXECUTING FOREIGN COMMAND <{command}>")
@@ -351,7 +595,7 @@ def download_yt_async(
 
 
 def download_playlist_async(ui: "YTPlaylistUI"):
-    folder = f"data/yt_downloads/{ui.playlist_name}"
+    folder = f"{DATA_PATH}/yt_downloads/{ui.playlist_name}"
     if not os.path.exists(folder):
         os.mkdir(folder)
     command = f'yt-dlp -P "{folder}" "{ui.playlist_url}"'
@@ -375,7 +619,7 @@ def merge_yt_async(
         aud, vid = fmt2, fmt1
     download_yt_async(ui, video, aud, True)
     download_yt_async(ui, video, vid, True)
-    prefix = "data/yt_downloads/"
+    prefix = f"{DATA_PATH}/yt_downloads/"
     almostifle = f"{prefix}{video.channel_fn}_{video.title_fn}_{vid.id}-{aud.id}."
     filename = f"{almostifle}mkv"
     invid = f"{prefix}{video.id}_{vid.id}.{vid.ext}"

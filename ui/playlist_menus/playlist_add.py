@@ -2,8 +2,7 @@ import mili
 import pygame
 import pathlib
 from ui.common import *
-from ui.common.entryline import UIEntryline
-from ui.common.data import PlaylistGroup
+from ui.common.data import PlaylistGroup, Entryline
 import tkinter.filedialog as filedialog
 
 
@@ -13,7 +12,7 @@ class PlaylistAddUI(UIComponent):
         self.anim_create = animation(-3)
         self.anim_upload = animation(-3)
         self.selected_files = None
-        self.entryline = UIEntryline("Enter name...", False)
+        self.entryline = Entryline(self.app, "Enter name...", False)
         self.cache = mili.ImageCache()
         self.create_type = "music"
 
@@ -26,7 +25,7 @@ class PlaylistAddUI(UIComponent):
             if shadowit.left_just_released:
                 self.close()
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
 
             with self.mili.begin(
@@ -43,7 +42,7 @@ class PlaylistAddUI(UIComponent):
 
                 self.mili.text_element(
                     "Add",
-                    {"size": self.mult(26)},
+                    {"size": self.mult_fs(26)},
                     None,
                     mili.CENTER | {"blocking": None},
                 )
@@ -83,7 +82,7 @@ class PlaylistAddUI(UIComponent):
                 self.mili.rect({"color": (MODALB_CV[0],) * 3, "border_radius": "10"})
             self.mili.text(
                 txt,
-                {"size": self.mult(21), "color": color},
+                {"size": self.mult_fs(21), "color": color},
             )
 
         self.mili.line_element(
@@ -110,7 +109,7 @@ class PlaylistAddUI(UIComponent):
                 "No file selected (file drop supported)",
                 {
                     "color": (150,) * 3,
-                    "size": self.mult(18),
+                    "size": self.mult_fs(18),
                 },
                 None,
                 {"align": "center", "blocking": None},
@@ -148,14 +147,11 @@ class PlaylistAddUI(UIComponent):
         self.ui_warning()
 
     def ui_create_group_content(self):
-        self.entryline.update(self.app)
         self.entryline.ui(
-            self.mili,
             pygame.Rect(
                 0, 0, mili.percentage(80, self.app.split_w / 1.35), self.mult(35)
             ),
             {"align": "center"},
-            self.mult,
         )
         self.ui_image_btn(
             ICONS.confirm,
@@ -168,7 +164,7 @@ class PlaylistAddUI(UIComponent):
         self.mili.text_element(
             "Adding might take some time if video files are chosen. Suffix the files with 'novideo' to force them to be audio only tracks",
             {
-                "size": self.mult(16),
+                "size": self.mult_fs(16),
                 "color": (150,) * 3,
                 "growx": False,
                 "wraplen": mili.percentage(70, self.app.split_w),
@@ -184,7 +180,7 @@ class PlaylistAddUI(UIComponent):
                 f"{path}",
                 {
                     "color": (255,) * 3,
-                    "size": self.mult(17),
+                    "size": self.mult_fs(17),
                     "growx": False,
                     "wraplen": "100",
                     "slow_grow": True,
@@ -198,7 +194,7 @@ class PlaylistAddUI(UIComponent):
                         f"... and {len(self.selected_files) - i - 1} more",
                         {
                             "color": (255,) * 3,
-                            "size": self.mult(17),
+                            "size": self.mult_fs(17),
                         },
                         None,
                         {"align": "center", "blocking": None},

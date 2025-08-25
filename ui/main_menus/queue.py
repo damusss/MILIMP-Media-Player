@@ -1,13 +1,15 @@
 import mili
 import pygame
+from functools import partial
 from ui.common import *
-from ui.common.data import HistoryData
+from ui.common.data import MusicData
 
 
-class HistoryUI(UIComponent):
+class QueueUI(UIComponent):
     def init(self):
         self.anim_back = animation(-5)
         self.anim_clear = animation(-2)
+        self.anims = [animation(-3) for i in range(4)]
         self.cache = mili.ImageCache()
         self.scroll = mili.Scroll()
         self.scrollbar = mili.Scrollbar(self.scroll, {"short_size": 7, "axis": "y"})
@@ -64,7 +66,7 @@ class HistoryUI(UIComponent):
             | {"clip_draw": False, "blocking": None},
         ):
             self.mili.text_element(
-                "History",
+                "Queue",
                 {"size": self.mult_fs(26)},
                 None,
                 mili.CENTER | {"blocking": None},
@@ -74,7 +76,7 @@ class HistoryUI(UIComponent):
                 self.action_clear,
                 self.anim_clear,
                 30,
-                tooltip="Clear the history",
+                tooltip="Clear the queue",
             )
         with self.mili.begin(
             None,
@@ -84,11 +86,11 @@ class HistoryUI(UIComponent):
             self.scrollbar.style["short_size"] = self.mult(self.sbar_size)
             self.scrollbar.update(cont)
             self.ui_scrollbar()
-            for history in reversed(self.app.history_data):
-                self.ui_history(history, cont.data.absolute_rect)
-            if len(self.app.history_data) <= 0:
+            for history in self.state.queue:
+                self.ui_music(history, cont.data.absolute_rect)
+            if len(self.state.queue) <= 0:
                 self.mili.text_element(
-                    "No music in history",
+                    "No music in the queue",
                     {"size": self.mult_fs(20), "color": (200,) * 3},
                     None,
                     {"align": "center", "blocking": None},
@@ -96,10 +98,7 @@ class HistoryUI(UIComponent):
 
         self.mili.element((0, 0, 0, self.mult(4)), {"blocking": None})
 
-    def ui_history(self, history: HistoryData, parent_rect):
-        if history.duration == "not cached" and history.music.pos_supported:
-            history.music.cache_duration()
-            history.duration = history.music.duration
+    def ui_music(self, music: MusicData, parent_rect):
         with self.mili.begin(
             (0, 0, 0, 0),
             {
@@ -116,49 +115,118 @@ class HistoryUI(UIComponent):
             },
         ) as it:
             if it.data.absolute_rect.colliderect(parent_rect):
-                self.mili.rect({"color": (cond(self.app, it, *MENUB_CV),) * 3})
-                self.ui_history_title(history)
-                self.ui_history_time(history, it.data.rect)
-
-                if self.app.can_interact():
-                    if it.left_just_released:
-                        self.restore_history(history)
-                    if it.hovered or it.unhover_pressed:
-                        self.app.cursor_hover = True
-                    if it.hovered:
-                        self.app.tick_tooltip("Restore track at position")
+                self.mili.rect({"color": (MENUB_CV[0],) * 3})
+                self.ui_music_title(music)
+                self.ui_music_buttons(music, it)
             else:
                 self.mili.element((0, 0, 0, self.mult(60)), {"blocking": False})
 
-    def ui_history_time(self, history: HistoryData, cont_rect):
-        if history.music.pos_supported:
-            data = self.mili.line_element(
-                [("-49.5", 0), ("49.5", 0)],
-                {"color": (120,) * 3, "size": self.mult(2)},
-                (0, 0, 0, self.mult(2)),
-                {"fillx": True, "blocking": False},
-            )
-            w = (data.data.rect.w) * (history.position / history.duration)
-            self.mili.line_element(
-                [("-49.5", 0), ("49.5", 0)],
-                {"color": "red", "size": self.mult(2)},
-                (data.data.rect.topleft, (w, data.data.rect.h)),
-                {"ignore_grid": True, "blocking": False},
-            )
-            txt, txtstyle = (
-                format_music_time(history.position, history.duration),
-                {"size": self.mult_fs(15), "color": (120,) * 3},
-            )
-            size = self.mili.text_size(txt, txtstyle)
+    def ui_music_buttons(self, music, parent: mili.Interaction):
+        btnsize = 38
+        rect = pygame.Rect(0, 0, self.mult(btnsize) * 4 * 1.1, self.mult(btnsize) * 1.1)
+        with self.mili.begin(
+            rect.move_to(midright=(parent.data.rect.w, parent.data.rect.h / 2)),
+            {
+                "ignore_grid": True,
+                "default_align": "center",
+                "anchor": "center",
+                "axis": "x",
+            },
+        ):
+            if self.app.can_interact() and parent.absolute_hover:
+                self.ui_image_btn(
+                    ICONS.up,
+                    partial(self.action_up, music),
+                    self.anims[0],
+                    btnsize,
+                    tooltip="Move up",
+                )
+                self.ui_image_btn(
+                    ICONS.down,
+                    partial(self.action_down, music),
+                    self.anims[1],
+                    btnsize,
+                    tooltip="Move down",
+                )
+                self.ui_image_btn(
+                    ICONS.play,
+                    partial(self.action_play, music),
+                    self.anims[2],
+                    btnsize,
+                    tooltip="Play now",
+                )
+                self.ui_image_btn(
+                    ICONS.delete,
+                    partial(self.action_remove, music),
+                    self.anims[3],
+                    btnsize,
+                    tooltip="Remove from queue",
+                    colors=RED_COLS,
+                )
+            else:
+                for i in range(4):
+                    self.mili.element(None)
+
+    def ui_music_title(self, music: MusicData):
+        if not music.loaded_cover and music.cover_path is not None:
+            music.load_cover_async(music.cover_path, ICONS.loading)
+        cover = music.cover
+        if cover is None:
+            cover = ICONS.music_cover
+        with self.mili.begin(
+            None,
+            {
+                "resizey": True,
+                "fillx": True,
+                "blocking": False,
+            }
+            | mili.PADLESS
+            | mili.X,
+        ):
+            if cover is not None:
+                self.mili.image_element(
+                    cover,
+                    {"cache": get_img_cache()},
+                    (0, 0, self.mult(50), self.mult(50)),
+                    {"align": "center", "blocking": False},
+                )
             self.mili.text_element(
-                txt,
-                txtstyle,
-                pygame.Rect((0, 0), size).move_to(
-                    bottomright=(cont_rect.w - self.mult(2), cont_rect.h - self.mult(4))
-                ),
-                {"ignore_grid": True, "blocking": None},
+                music.name_or_alias(self.app),
+                {
+                    "size": self.mult_fs(16),
+                    "growx": False,
+                    "growy": False,
+                    "wraplen": "100",
+                    "font_align": pygame.FONT_LEFT,
+                    "align": "topleft",
+                },
+                (0, 0, 0, self.mult(60)),
+                {"align": "first", "blocking": False, "fillx": True},
             )
 
+    def action_remove(self, music: MusicData):
+        self.state.queue.remove(music)
+
+    def action_play(self, music: MusicData):
+        self.state.play_music(
+            music,
+            music.playlist.get_group_sorted_musics().index(music),
+        )
+        self.app.playlist_viewer.set_scroll_to_music()
+
+    def action_up(self, music: MusicData):
+        idx = self.state.queue.index(music)
+        if idx > 0:
+            self.state.queue.remove(music)
+            self.state.queue.insert(idx - 1, music)
+
+    def action_down(self, music: MusicData):
+        idx = self.state.queue.index(music)
+        if idx < len(self.state.queue) - 1:
+            self.state.queue.remove(music)
+            self.state.queue.insert(idx + 1, music)
+
+    """
     def ui_history_title(self, history: HistoryData):
         if not history.music.loaded_cover and history.music.cover_path is not None:
             history.music.load_cover_async(history.music.cover_path, ICONS.loading)
@@ -205,9 +273,12 @@ class HistoryUI(UIComponent):
         self.state.set_music_pos(history.position)
         self.app.playlist_viewer.set_scroll_to_music()
         self.app.modal_state = "none"
+    """
+
+    def queue_play(self, music: MusicData): ...
 
     def action_clear(self):
-        self.app.history_data = []
+        self.state.queue = []
 
     def back(self):
         self.app.modal_state = "settings"

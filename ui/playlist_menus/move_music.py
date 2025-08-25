@@ -23,7 +23,7 @@ class MoveMusicUI(UIComponent):
             if shadowit.left_just_released:
                 self.close()
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
 
             with self.mili.begin(
@@ -40,7 +40,7 @@ class MoveMusicUI(UIComponent):
 
                 self.mili.text_element(
                     "Move Music",
-                    {"size": self.mult(26)},
+                    {"size": self.mult_fs(26)},
                     None,
                     mili.CENTER | {"blocking": None},
                 )
@@ -50,7 +50,7 @@ class MoveMusicUI(UIComponent):
                     else "Not enough playlists to move",
                     {
                         "color": (150,) * 3,
-                        "size": self.mult(16),
+                        "size": self.mult_fs(16),
                         "slow_grow": True,
                         "growx": False,
                         "wraplen": "100",
@@ -103,7 +103,7 @@ class MoveMusicUI(UIComponent):
                         )
                     self.mili.text_element(
                         f"{playlist.name}",
-                        {"align": "left", "size": self.mult(22)},
+                        {"align": "left", "size": self.mult_fs(22)},
                         None,
                         {"align": "center", "blocking": False},
                     )
@@ -123,16 +123,20 @@ class MoveMusicUI(UIComponent):
         if self.music.group is not None:
             self.music.group.remove(self.music)
 
-        mp3path = f"data/mp3_converted/{self.app.playlist_viewer.playlist.name}_{self.music.realstem}.mp3"
-        newmp3path = f"data/mp3_converted/{playlist.name}_{self.music.realstem}.mp3"
+        alias = self.music.alias
+        if alias is not None:
+            self.music.playlist.aliases.pop(self.music.realpath)
+
+        mp3path = f"{DATA_PATH}/mp3_converted/{self.app.playlist_viewer.playlist.name}_{self.music.realstem}.mp3"
+        newmp3path = f"{DATA_PATH}/mp3_converted/{playlist.name}_{self.music.realstem}.mp3"
         if os.path.exists(mp3path):
             if not os.path.exists(newmp3path):
                 os.rename(mp3path, newmp3path)
 
-        coverpath = f"data/music_covers/{self.app.playlist_viewer.playlist.name}_{self.music.realstem}.png"
+        coverpath = f"{DATA_PATH}/music_covers/{self.app.playlist_viewer.playlist.name}_{self.music.realstem}.png"
         if os.path.exists(coverpath):
             newcoverpath = (
-                f"data/music_covers/{playlist.name}_{self.music.realstem}.png"
+                f"{DATA_PATH}/music_covers/{playlist.name}_{self.music.realstem}.png"
             )
             if not os.path.exists(newcoverpath):
                 os.rename(coverpath, newcoverpath)
@@ -144,6 +148,9 @@ class MoveMusicUI(UIComponent):
             else self.music.realpath,
             ICONS.loading,
         )
+
+        if alias:
+            playlist.aliases[self.music.realpath] = alias
 
         self.close()
 

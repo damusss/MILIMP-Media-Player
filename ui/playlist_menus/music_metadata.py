@@ -20,13 +20,13 @@ class MusicMetadataUI(UIComponent):
             if shadowit.left_just_released:
                 self.close()
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
 
             with self.mili.begin(
                 (0, 0, 0, 0),
                 {
-                    "fillx": "60" if self.app.split_w > 1500 else "80",
+                    "fillx": "60" if self.app.split_w > 1500 else "90",
                     "resizey": True,
                     "align": "center",
                     "spacing": self.mult(13),
@@ -39,7 +39,7 @@ class MusicMetadataUI(UIComponent):
 
                 self.mili.text_element(
                     "Music Metadata",
-                    {"size": self.mult(26)},
+                    {"size": self.mult_fs(26)},
                     None,
                     mili.CENTER | {"blocking": None},
                 )
@@ -56,10 +56,14 @@ class MusicMetadataUI(UIComponent):
                     self.ui_metadata_column(
                         "Title", parse_music_stem(self.app, self.music.realpath.stem)
                     )
+                    alias = self.music.alias
+                    self.ui_metadata_column(
+                        "Alias", alias if alias else "No alias", alias is not None
+                    )
                     self.ui_metadata_column("Real Path", self.music.realpath, path=True)
                     pname = self.music.playlist.name
                     converted = pathlib.Path(
-                        f"data/mp3_converted/{pname}_{self.music.realpath.stem}.mp3"
+                        f"{DATA_PATH}/mp3_converted/{pname}_{self.music.realpath.stem}.mp3"
                     ).resolve()
                     has_converted = True
                     if not os.path.exists(converted):
@@ -69,7 +73,7 @@ class MusicMetadataUI(UIComponent):
                         "Converted Path", converted, has_converted, path=True
                     )
                     cover = pathlib.Path(
-                        f"data/music_covers/{pname}_{self.music.realpath.stem}.png"
+                        f"{DATA_PATH}/music_covers/{pname}_{self.music.realpath.stem}.png"
                     ).resolve()
                     has_cover = True
                     if not os.path.exists(cover):
@@ -97,15 +101,16 @@ class MusicMetadataUI(UIComponent):
                     self.ui_metadata_column(
                         "Is Video", "Yes" if self.music.isvideo else "No (audio only)"
                     )
-                    self.ui_metadata_column("Has Audio", "Yes" if self.music.has_audio else "No (video only)")
+                    self.ui_metadata_column(
+                        "Has Audio",
+                        "Yes" if self.music.has_audio else "No (video only)",
+                    )
                     self.ui_metadata_column(
                         "Track Positioning",
                         "Supported" if self.music.pos_supported else "Unsupported",
                     )
                     if self.music.isvideo:
                         extra = ""
-                        if self.music.filesize > LARGE_MEDIA_SIZE:
-                            extra = " (Heavy File)"
                         sourceres = "N/D"
 
                         if (
@@ -115,11 +120,15 @@ class MusicMetadataUI(UIComponent):
                             if (
                                 self.music is self.state.music
                                 and self.state.async_videoclip is not None
-                                and self.state.async_videoclip.videoclip
-                                is not None
+                                and self.state.async_videoclip.stream is not None
                             ):
-                                self.music.video_size = self.state.async_videoclip.original_size
-                                self.music.video_fps = self.state.async_videoclip.videoclip.fps
+                                self.music.video_size = (
+                                    self.state.async_videoclip.stream.coded_width,
+                                    self.state.async_videoclip.stream.coded_height,
+                                )
+                                self.music.video_fps = (
+                                    self.state.async_videoclip.stream.average_rate
+                                )
                             else:
                                 self.music.cache_video_metadata()
                         if self.music.video_size is not None:
@@ -164,7 +173,7 @@ class MusicMetadataUI(UIComponent):
             self.mili.text(
                 title,
                 {
-                    "size": self.mult(18),
+                    "size": self.mult_fs(18),
                     "growx": False,
                     "growy": False,
                     "align": "left",
@@ -187,7 +196,7 @@ class MusicMetadataUI(UIComponent):
             self.mili.text(
                 value,
                 {
-                    "size": self.mult(15 if path and active else 17),
+                    "size": self.mult_fs(15 if path and active else 17),
                     "growx": False,
                     "slow_grow": True,
                     "wraplen": "100",

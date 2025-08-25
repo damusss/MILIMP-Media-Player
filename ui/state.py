@@ -1,5 +1,11 @@
 from ui.common import *
-from ui.common.data import MusicData, NotCached, AsyncVideoclipGetter
+from ui.common.data import (
+    MusicData,
+    NotCached,
+    AsyncVideoclipGetter,
+    AsyncFFPLAYAudioPlayer,
+    VirtualPlayingMusic,
+)
 import time
 import threading
 import random
@@ -24,15 +30,15 @@ class MusicState:
         self.music_loops = False
         self.music_start_time = None
         self.async_videoclip: AsyncVideoclipGetter = None
-        self.music_videoclip_cover = None
-        self.last_videoclip_cover = None
+        self.async_audioplayer: AsyncFFPLAYAudioPlayer = None
         self.bg_effect = False
+        self.queue: list[MusicData] = []
 
     @property
-    def music_videoclip(self):
+    def music_container(self):
         if self.async_videoclip is None:
             return None
-        return self.async_videoclip.videoclip
+        return self.async_videoclip.container
 
     def set_music_pos(self, pos):
         if (
@@ -44,7 +50,13 @@ class MusicState:
         self.music_play_time = pygame.time.get_ticks()
         self.music_play_offset = pos
         if self.music.has_audio:
-            pygame.mixer.music.set_pos(pos)
+            if self.music.require_ffplay:
+                if self.async_audioplayer is not None:
+                    self.async_audioplayer.remake_pipe = True
+                    while self.async_audioplayer.remake_pipe:
+                        ...
+            else:
+                pygame.mixer.music.set_pos(pos)
 
     def get_music_pos(self):
         return (
@@ -52,7 +64,7 @@ class MusicState:
             + (pygame.time.get_ticks() - self.music_play_time) / 1000
         )
 
-    def play_music(self, music: MusicData, idx):
+    def play_music(self, music: MusicData | VirtualPlayingMusic, idx):
         if music.pending:
             self.end_music()
             return
@@ -61,6 +73,9 @@ class MusicState:
             self.async_videoclip.alive = False
             if self.videoclip_threaded:
                 self.async_videoclip.thread.join()
+        if self.async_audioplayer is not None:
+            self.async_audioplayer.alive = False
+            self.async_audioplayer.thread.join()
         self.async_videoclip = None
         if self.music is not None:
             self.app.add_to_history()
@@ -78,8 +93,6 @@ class MusicState:
         self.music_index = idx
         self.music_start_time = time.time()
         self.music_play_offset = 0
-        self.music_videoclip_cover = None
-        self.last_videoclip_cover = None
         if self.music.duration is NotCached:
             self.music.cache_duration()
         if self.music.isvideo:
@@ -91,11 +104,19 @@ class MusicState:
                 self.async_videoclip.thread = thread
                 thread.start()
             else:
-                self.async_videoclip.load_videoclip()
+                self.async_videoclip.load_container()
         if self.music.has_audio:
-            pygame.mixer.music.load(self.music.audiopath)
-            pygame.mixer.music.play(0)
-            pygame.mixer.music.set_endevent(MUSIC_ENDEVENT)
+            if self.music.require_ffplay:
+                pygame.mixer.music.stop()
+                pygame.mixer.music.unload()
+                self.async_audioplayer = AsyncFFPLAYAudioPlayer(self.app)
+                thread = threading.Thread(target=self.async_audioplayer.loop)
+                self.async_audioplayer.thread = thread
+                thread.start()
+            else:
+                pygame.mixer.music.load(self.music.audiopath)
+                pygame.mixer.music.play(0)
+                pygame.mixer.music.set_endevent(MUSIC_ENDEVENT)
         else:
             pygame.mixer.music.set_endevent(0)
             pygame.mixer.music.stop()
@@ -111,38 +132,64 @@ class MusicState:
             self.async_videoclip.alive = False
             if self.videoclip_threaded:
                 self.async_videoclip.thread.join()
+        if self.async_audioplayer is not None:
+            self.async_audioplayer.alive = False
+            self.async_audioplayer.thread.join()
         self.app.when_end_music()
         self.bg_effect = False
         if self.music is not None:
             self.app.add_to_history()
+        if self.music in self.queue:
+            self.queue.remove(self.music)
         self.music = None
         self.music_paused = False
         pygame.mixer.music.stop()
         pygame.mixer.music.unload()
-        if self.music_videoclip is not None:
-            self.music_videoclip.close()
+        if self.music_container is not None:
+            self.music_container.close()
         self.async_videoclip = None
+        self.async_audioplayer = None
         self.app.music_controls.when_end_music()
 
     def volume_up(self):
         self.volume += 0.05
         if self.volume > 1:
             self.volume = 1
+        if self.async_audioplayer is not None:
+            self.async_audioplayer.remake_pipe = True
+            while self.async_audioplayer.remake_pipe:
+                ...
         pygame.mixer.music.set_volume(self.volume)
 
     def volume_down(self):
         self.volume -= 0.05
         if self.volume < 0:
             self.volume = 0
+        if self.async_audioplayer is not None:
+            self.async_audioplayer.remake_pipe = True
+            while self.async_audioplayer.remake_pipe:
+                ...
         pygame.mixer.music.set_volume(self.volume)
 
     def music_auto_finish(self):
         if self.music_loops:
             self.play_music(self.music, self.music_index)
             return
-        if self.shuffle:
+        if len(self.queue) > 0:
+            queueidx = 0
+            if self.music in self.queue:
+                queueidx = self.queue.index(self.music)
+                self.queue.remove(self.music)
+                if len(self.queue) > 0:
+                    music = self.queue[min(queueidx, len(self.queue) - 1)]
+                    self.play_music(
+                        music, music.playlist.get_group_sorted_musics().index(music)
+                    )
+                    self.app.playlist_viewer.set_scroll_to_music()
+                    return
+        if self.shuffle and not self.music.require_ffplay:
             music_available = self.music.playlist.musiclist.copy()
-            music_available.remove(self.state.music)
+            music_available.remove(self.music)
             new_music = random.choice(music_available)
             doscroll = (
                 new_music.group is not self.music.group
@@ -159,6 +206,9 @@ class MusicState:
         self.skip_next(True, True)
 
     def skip_next(self, stop_if_end=False, consider_loop=False):
+        if self.music.require_ffplay:
+            self.end_music()
+            return
         if len(self.music.playlist.musiclist) <= 0:
             if stop_if_end:
                 self.end_music()
@@ -183,6 +233,9 @@ class MusicState:
             self.app.playlist_viewer.set_scroll_to_music(True)
 
     def skip_previous(self):
+        if self.music.require_ffplay:
+            self.end_music()
+            return
         if len(self.music.playlist.musiclist) <= 0:
             return
         new_idx = self.music_index - 1
@@ -229,28 +282,48 @@ class MusicState:
 
     def pause(self):
         if self.music_paused:
-            if self.music.has_audio:
-                pygame.mixer.music.unpause()
             self.music_paused = False
-        else:
             if self.music.has_audio:
-                pygame.mixer.music.pause()
+                if self.music.require_ffplay:
+                    if self.async_audioplayer is not None:
+                        self.async_audioplayer.remake_pipe = True
+                        while self.async_audioplayer.remake_pipe:
+                            ...
+                else:
+                    pygame.mixer.music.unpause()
+
+        else:
             self.music_paused = True
+            if self.music.has_audio:
+                if self.music.require_ffplay:
+                    if self.async_audioplayer is not None:
+                        self.async_audioplayer.remake_pipe = True
+                        while self.async_audioplayer.remake_pipe:
+                            ...
+                else:
+                    pygame.mixer.music.pause()
+
         self.app.discord_presence.update()
 
     def update_bg_effect(self):
         self.bg_effect = False
-        if self.music is None:
+        if (
+            self.music is None
+            or self.app.modal_state == "fullscreen"
+            or self.app.super_fullscreen
+            or not self.app.focused
+            or self.async_videoclip is None
+        ):
             return
-        if self.app.modal_state == "fullscreen" or self.app.super_fullscreen:
-            return
-        if not self.app.focused:
-            return
-        image = self.music.cover
-        if self.music_videoclip_cover is not None:
-            image = self.music_videoclip_cover
-            if self.async_videoclip.small_output is not None:
-                image = self.async_videoclip.small_output
+        image = None
+        smallest = float("inf")
+        for rect in self.async_videoclip.rects:
+            if rect.rect is None or not rect.active:
+                continue
+            size = rect.rect.w * rect.rect.h
+            if size < smallest:
+                image = rect.output
+                smallest = size
         if image is None:
             return
         if self.music_paused:
@@ -263,11 +336,13 @@ class MusicState:
             self.app.bg_effect_image.fill(color)
 
     def update_videoclip_cover(self, pos_override=None):
-        self.music_videoclip_cover = None
-        if self.music is None:
+        if self.music is None or self.async_videoclip is None:
             return
-        if self.async_videoclip is None:
-            return
+        self.async_videoclip.active = False
+        self.async_videoclip.miniplayer_rect.active = (
+            self.app.music_controls.minip.window is not None
+        )
+        self.async_videoclip.main_rect.active = True
         if self.app.music_controls.track_hover_pos is not None:
             pos_override = self.app.music_controls.track_hover_pos
         if not self.app.focused and self.app.music_controls.minip.window is None:
@@ -275,12 +350,10 @@ class MusicState:
         if self.music.duration in [None, NotCached]:
             return
         if self.music_paused and not pos_override:
-            self.music_videoclip_cover = self.last_videoclip_cover
             return
-        if self.music_videoclip is not None:
+        if self.async_videoclip is not None:
             pos = pos_override if pos_override else self.get_music_pos()
             if pos >= self.music.duration:
-                self.music_videoclip_cover = SURF
                 return
             try:
                 self.async_videoclip.active = True
@@ -288,10 +361,8 @@ class MusicState:
                 self.async_videoclip.framerate = self.app.target_framerate
                 if not self.videoclip_threaded:
                     self.async_videoclip.update()
-                self.music_videoclip_cover = self.async_videoclip.output
             except Exception:
                 return
-            self.last_videoclip_cover = self.music_videoclip_cover
 
     def get_music_cover(self, focused=None):
         if focused is None:
@@ -299,27 +370,14 @@ class MusicState:
         cover = ICONS.music_cover
         if self.music.cover is not None:
             cover = self.music.cover
-        if self.music_videoclip_cover is not None and focused:
-            cover = self.music_videoclip_cover
         return cover
-
-    def get_scaled_cover(self, cover, it: mili.Interaction, can_use_renderer=False):
-        scaled = False
-        current = (
-            self.async_videoclip is not None
-            and self.music_videoclip_cover is not None
-            and not self.music_paused
-            and (not USE_RENDERER or can_use_renderer)
-        )
-        if current:
-            self.app.music_controls.videoclip_rects.append((0, it.data.rect))
-            if it.data.rect.size in (out := self.async_videoclip.scaled_output):
-                cover = out[it.data.rect.size]
-                scaled = True
-        return scaled, cover
 
     def change_volume(self, value):
         self.volume = pygame.math.clamp(value, 0, 1)
+        if self.async_audioplayer is not None:
+            self.async_audioplayer.remake_pipe = True
+            while self.async_audioplayer.remake_pipe:
+                ...
         pygame.mixer.music.set_volume(self.volume)
 
     def mute(self):
@@ -328,6 +386,10 @@ class MusicState:
             self.volume = 0
         else:
             self.volume = self.vol_before_mute
+        if self.async_audioplayer is not None:
+            self.async_audioplayer.remake_pipe = True
+            while self.async_audioplayer.remake_pipe:
+                ...
         pygame.mixer.music.set_volume(self.volume)
 
     def toggle_thread(self):

@@ -29,7 +29,7 @@ class YTPlaylistUI(UIComponent):
                 self.close()
                 return
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
             perc = 40 if self.app.split_w > 1200 else 80
             with self.mili.begin(
@@ -51,7 +51,7 @@ class YTPlaylistUI(UIComponent):
 
                 self.mili.text_element(
                     "Download All Videos",
-                    {"size": self.mult(26)},
+                    {"size": self.mult_fs(26)},
                     None,
                     mili.CENTER | {"blocking": None},
                 )
@@ -70,7 +70,7 @@ class YTPlaylistUI(UIComponent):
                 self.mili.text_element(
                     text,
                     {
-                        "size": self.mult(17),
+                        "size": self.mult_fs(17),
                         "slow_grow": True,
                         "growx": False,
                         "wraplen": "100",

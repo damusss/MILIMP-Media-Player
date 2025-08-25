@@ -23,7 +23,7 @@ class AddToGroupUI(UIComponent):
             if shadowit.left_just_released:
                 self.close()
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
 
             with self.mili.begin(
@@ -40,7 +40,7 @@ class AddToGroupUI(UIComponent):
 
                 self.mili.text_element(
                     "Add to Group",
-                    {"size": self.mult(26)},
+                    {"size": self.mult_fs(26)},
                     None,
                     mili.CENTER | {"blocking": None},
                 )
@@ -50,7 +50,7 @@ class AddToGroupUI(UIComponent):
                     else "Not enough groups to add to",
                     {
                         "color": (150,) * 3,
-                        "size": self.mult(16),
+                        "size": self.mult_fs(16),
                         "slow_grow": True,
                         "growx": False,
                         "wraplen": "100",
@@ -95,7 +95,7 @@ class AddToGroupUI(UIComponent):
                     )
                     self.mili.text_element(
                         f"{group.name}{extra}",
-                        {"align": "left", "size": self.mult(22)},
+                        {"align": "left", "size": self.mult_fs(22)},
                         None,
                         {"align": "center", "blocking": False},
                     )

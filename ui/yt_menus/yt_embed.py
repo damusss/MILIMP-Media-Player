@@ -19,7 +19,7 @@ class YTEmbedUI(UIComponent):
             {"ignore_grid": True, "blocking": False} | mili.PADLESS,
         ) as shadowit:
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
             ar = shadowit.data.absolute_rect
             h = ar.h - self.mult(150)
@@ -51,42 +51,42 @@ class YTEmbedUI(UIComponent):
                 self.action_next,
                 ICONS.skip_next,
                 tooltip="Preview next video",
-                leftmult=1,
+                sidex=1,
             )
             self.ui_overlay_btn(
                 self.anims[2],
                 self.action_previous,
                 ICONS.skip_previous,
                 tooltip="Preview previous video",
-                leftmult=2,
+                sidex=2,
             )
             self.ui_overlay_btn(
                 self.anims[3],
                 self.action_link,
                 ICONS.link,
                 tooltip="Toggle embed link/youtube link",
-                leftmult=3,
+                sidex=3,
             )
             self.ui_overlay_btn(
                 self.anims[4],
                 self.app.yt_search.action_open_link,
                 ICONS.minip,
                 tooltip="Open video in browser",
-                leftmult=4,
+                sidex=4,
             )
             self.ui_overlay_btn(
                 self.anims[5],
                 self.action_download,
                 ICONS.download,
                 tooltip="Select formats and download",
-                leftmult=5,
+                sidex=5,
             )
             self.ui_overlay_btn(
                 self.anims[6],
                 self.app.yt_search.action_copy_url,
                 ICONS.copy,
                 tooltip="Copy url to clipboard",
-                leftmult=6,
+                sidex=6,
             )
 
     def action_download(self):

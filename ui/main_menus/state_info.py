@@ -1,5 +1,7 @@
 import mili
 import pygame
+import threading
+import shutil
 from ui.common import *
 
 
@@ -10,6 +12,15 @@ class StateInfoUI(UIComponent):
         self.scroll = mili.Scroll()
         self.scrollbar = mili.Scrollbar(self.scroll, {"short_size": 7, "axis": "y"})
         self.sbar_size = self.scrollbar.style["short_size"]
+        self.ytdlp_dep = shutil.which("yt-dlp")
+        self.ffmpeg_dep = shutil.which("ffmpeg")
+        self.ffplay_dep = shutil.which("ffplay")
+        if self.ytdlp_dep is None:
+            self.ytdlp_dep = "Not Found"
+        if self.ffmpeg_dep is None:
+            self.ffmpeg_dep = "Not Found"
+        if self.ffplay_dep is None:
+            self.ffplay_dep = "Not Found"
 
     def ui(self):
         handle_arrow_scroll(self.app, self.scroll, self.scrollbar)
@@ -22,15 +33,15 @@ class StateInfoUI(UIComponent):
             if shadowit.left_just_released:
                 self.back()
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
             with self.mili.begin(
                 (0, 0, 0, 0),
                 {
                     "fillx": "60" if self.app.split_w > 1500 else "90",
-                    "filly": "70"
+                    "filly": "80"
                     if self.state.music is not None or self.app.split_w < 800
-                    else "50",
+                    else "65",
                     "align": "center",
                     "spacing": self.mult(13),
                     "offset": (
@@ -47,7 +58,7 @@ class StateInfoUI(UIComponent):
 
                 self.mili.text_element(
                     "State Information",
-                    {"size": self.mult(26)},
+                    {"size": self.mult_fs(26)},
                     None,
                     mili.CENTER | {"blocking": None},
                 )
@@ -70,7 +81,7 @@ class StateInfoUI(UIComponent):
                     self.ui_column("Volume", state.volume)
                     self.ui_column(
                         "Music Name",
-                        parse_music_stem(app, state.music.realstem)
+                        state.music.name_or_alias(self.app)
                         if state.music is not None
                         else "Not playing",
                         active=state.music is not None,
@@ -90,26 +101,32 @@ class StateInfoUI(UIComponent):
                         )
                         if state.music.isvideo:
                             frame = state.async_videoclip
-                            if frame.videoclip is not None:
-                                if frame.original_size is not None:
-                                    self.ui_column(
-                                        "Video Resolution",
-                                        f"{int(frame.videoclip.size[0])}x{int(frame.videoclip.size[1])}/{int(frame.original_size.x)}x{int(frame.original_size.y)} px",
-                                    )
+                            if frame.stream is not None:
+                                self.ui_column(
+                                    "Video Resolution",
+                                    f"{int(frame.stream.coded_width)}x{int(frame.stream.coded_height)} px",
+                                )
                                 if isinstance(state.music.duration, float):
-                                    frames = int(
-                                        state.music.duration * frame.videoclip.fps
-                                    )
-                                    frameno = int(
-                                        frames * (mpos / state.music.duration)
-                                    )
-                                    self.ui_column("Video Frame", f"{frameno}/{frames}")
+                                    fps = frame.stream.average_rate
+                                    if fps is not None:
+                                        frames = int(state.music.duration * fps)
+                                        frameno = int(
+                                            frames * (mpos / state.music.duration)
+                                        )
+                                        self.ui_column(
+                                            "Video Frame", f"{frameno}/{frames}"
+                                        )
+                                fps = frame.stream.average_rate
+                                if fps is None:
+                                    fps = "?"
+                                else:
+                                    fps = f"{fps:.0f}"
                                 self.ui_column(
                                     "Video Thread Framerate",
                                     (
                                         "Music paused"
                                         if state.music_paused
-                                        else f"{frame.current_fps:.2f}/{frame.videoclip.fps:.0f} FPS"
+                                        else f"{frame.current_fps:.2f}/{fps} FPS"
                                     )
                                     if state.videoclip_threaded
                                     else "Not multithreaded",
@@ -140,6 +157,12 @@ class StateInfoUI(UIComponent):
                         "Last Data Save",
                         f"{(pygame.time.get_ticks() - app.last_save) / 1000:.0f} Seconds Ago",
                     )
+                    self.ui_column(
+                        "Foreign Dependencies",
+                        f"yt-dlp: {self.ytdlp_dep}, ffmpeg: {self.ffmpeg_dep}, ffplay: {self.ffplay_dep}",
+                    )
+                    self.ui_column("Data Path", DATA_PATH)
+                    self.ui_column("Thread Count", f"{threading.active_count()}")
 
                 self.mili.element((0, 0, 0, self.mult(10)))
 
@@ -172,7 +195,7 @@ class StateInfoUI(UIComponent):
             self.mili.text(
                 title,
                 {
-                    "size": self.mult(18),
+                    "size": self.mult_fs(18),
                     "growx": False,
                     "growy": False,
                     "align": "left",
@@ -195,7 +218,7 @@ class StateInfoUI(UIComponent):
             self.mili.text(
                 {True: "Yes", False: "No"}[value] if boolean else value,
                 {
-                    "size": self.mult(17),
+                    "size": self.mult_fs(17),
                     "growx": False,
                     "slow_grow": True,
                     "wraplen": "100",

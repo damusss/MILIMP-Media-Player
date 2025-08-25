@@ -1,11 +1,14 @@
 import os
 import mili
 import pygame
+import threading
 import pathlib
+import shutil
+import webbrowser
 from ui.common import *
-from ui.common.data import Playlist
-from ui.common.entryline import UIEntryline
+from ui.common.data import Playlist, Entryline
 import tkinter.filedialog as filedialog
+from ui.common.yt_actions import get_playlist_name_async, save_playlist_metadata
 
 
 class NewPlaylistUI(UIComponent):
@@ -13,13 +16,20 @@ class NewPlaylistUI(UIComponent):
         self.anim_close = animation(-5)
         self.anim_create = animation(-3)
         self.anim_upload = animation(-3)
-        self.entryline = UIEntryline("Enter name...")
+        self.entryline = Entryline(self.app, "Enter name...")
+        self.yt_entry = Entryline(self.app, "Enter link...", target_files=False)
         self.cache = mili.ImageCache()
         self.create_type = "empty"
         self.selected_folder = None
+        self.playlist_name = None
+        self.playlist_url = None
+        self.yt_searching = False
+        self.error = None
+        self.found_dependency = False
+        self.playlist_meta = None
 
     def ui(self):
-        self.mili.id_checkpoint(ID_OFFSET + 70000)
+        self.mili.id_checkpoint(ID_OFFSET + 240000)
         with self.mili.begin(
             ((0, 0), self.app.split_size),
             {"ignore_grid": True, "blocking": True} | mili.CENTER,
@@ -27,7 +37,7 @@ class NewPlaylistUI(UIComponent):
             if shadowit.left_just_released:
                 self.close()
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
 
             with self.mili.begin(
@@ -51,7 +61,7 @@ class NewPlaylistUI(UIComponent):
     def ui_modal_content(self):
         self.mili.text_element(
             "New Playlist",
-            {"size": self.mult(26)},
+            {"size": self.mult_fs(26)},
             None,
             mili.CENTER | {"blocking": None},
         )
@@ -61,30 +71,50 @@ class NewPlaylistUI(UIComponent):
             | mili.PADLESS,
         ) as row:
             with self.mili.begin(
-                (0, 0, row.data.rect.w / 2.01, 0),
+                (0, 0, row.data.rect.w / 3.01, 0),
                 {"resizey": True, "padx": 0, "pady": 0},
             ) as left_cont:
-                self.ui_section_btn(left_cont, "empty", "Empty")
+                self.ui_section_btn(
+                    left_cont, "empty", "Empty", "Create an empty playlist with a name"
+                )
 
             with self.mili.begin(
-                (0, 0, row.data.rect.w / 2.01, 0),
+                (0, 0, row.data.rect.w / 3.01, 0),
+                {"resizey": True, "padx": 0, "pady": 0},
+            ) as middle_cont:
+                self.ui_section_btn(
+                    middle_cont,
+                    "folder",
+                    "Load Folder",
+                    "Create a playlist with all the tracks inside a folder",
+                )
+
+            with self.mili.begin(
+                (0, 0, row.data.rect.w / 3.01, 0),
                 {"resizey": True, "padx": 0, "pady": 0},
             ) as right_cont:
-                self.ui_section_btn(right_cont, "folder", "Load Folder")
+                self.ui_section_btn(
+                    right_cont,
+                    "youtube",
+                    "YT Playlist",
+                    "Create a playlist that can download and sync a youtube playlist",
+                )
 
         if self.create_type == "empty":
             self.ui_empty_playlist_modal()
-        else:
+        elif self.create_type == "folder":
             self.ui_folder_playlist_modal()
+        else:
+            self.ui_youtube_playlist_modal()
 
-    def ui_section_btn(self, cont, ctype, txt):
+    def ui_section_btn(self, cont, ctype, txt, tooltip):
         color = (255,) * 3 if self.create_type == ctype else (120,) * 3
         if self.mili.element(None, mili.CENTER | {"blocking": False}):
             if cont.hovered and self.app.can_interact():
                 self.mili.rect({"color": (MODALB_CV[0],) * 3, "border_radius": "10"})
             self.mili.text(
                 txt,
-                {"size": self.mult(21), "color": color},
+                {"size": self.mult_fs(21), "color": color},
             )
 
         self.mili.line_element(
@@ -99,21 +129,14 @@ class NewPlaylistUI(UIComponent):
             if cont.hovered or cont.unhover_pressed:
                 self.app.cursor_hover = True
             if cont.hovered:
-                self.app.tick_tooltip(
-                    "Create an empty playlist with a name"
-                    if ctype == "empty"
-                    else "Create a playlist with all the tracks inside a folder"
-                )
+                self.app.tick_tooltip(tooltip)
 
     def ui_empty_playlist_modal(self):
-        self.entryline.update(self.app)
         self.entryline.ui(
-            self.mili,
             pygame.Rect(
                 0, 0, mili.percentage(80, self.app.split_w / 1.35), self.mult(35)
             ),
             {"align": "center"},
-            self.mult,
         )
         self.ui_image_btn(
             ICONS.confirm,
@@ -129,7 +152,7 @@ class NewPlaylistUI(UIComponent):
             else "No folder selected (file drop supported)",
             {
                 "color": "white" if self.selected_folder else (150,) * 3,
-                "size": self.mult(20) if self.selected_folder else self.mult(18),
+                "size": self.mult_fs(20) if self.selected_folder else self.mult_fs(18),
                 "wraplen": "100",
                 "growx": False,
                 "slow_grow": True,
@@ -165,7 +188,7 @@ class NewPlaylistUI(UIComponent):
         self.mili.text_element(
             "Creating might take some time if video files are present",
             {
-                "size": self.mult(16),
+                "size": self.mult_fs(16),
                 "color": (150,) * 3,
                 "growx": False,
                 "wraplen": mili.percentage(70, self.app.split_w),
@@ -174,6 +197,112 @@ class NewPlaylistUI(UIComponent):
             None,
             {"fillx": True, "blocking": None},
         )
+
+    def ui_youtube_playlist_modal(self):
+        self.yt_entry.ui(
+            pygame.Rect(
+                0, 0, mili.percentage(80, self.app.split_w / 1.35), self.mult(35)
+            ),
+            {"align": "center"},
+        )
+        cur = self.yt_entry.text.strip()
+        if cur != self.playlist_url:
+            self.playlist_url = cur
+            self.playlist_name = None
+        if self.playlist_name is not None or self.error:
+            self.mili.text_element(
+                self.error
+                if self.error
+                else f"Selected playlist: {self.playlist_name}",
+                {
+                    "color": "red" if self.error else "white",
+                    "size": self.mult_fs(22),
+                    "wraplen": "100",
+                    "growx": False,
+                    "slow_grow": True,
+                },
+                (0, 0, mili.percentage(70, self.app.split_w), 0),
+                {"align": "center", "blocking": None},
+            )
+        if self.yt_searching:
+            self.mili.text_element(
+                "Checking playlist...",
+                {"size": self.mult_fs(20)},
+                None,
+                {"align": "center"},
+            )
+        else:
+            self.ui_image_btn(
+                ICONS.search_video if self.playlist_name is None else ICONS.confirm,
+                self.action_yt_search
+                if self.playlist_name is None
+                else self.action_yt_create,
+                self.anim_create,
+                tooltip="Check the playlist"
+                if self.playlist_name is None
+                else "Create the youtube playlist",
+            )
+
+    def action_yt_search(self):
+        self.error = None
+        self.playlist_meta = None
+
+        found = self.check_ytdlp_dependency()
+        if not found:
+            return True
+
+        self.yt_searching = True
+        thread = threading.Thread(target=get_playlist_name_async, args=(self,))
+        thread.start()
+
+    def check_ytdlp_dependency(self):
+        if self.found_dependency:
+            return True
+        dep = shutil.which("yt-dlp")
+        if dep is None:
+            self.error = "Missing yt-dlp dependency"
+            btn = pygame.display.message_box(
+                "Missing Dependency 'yt-dlp'",
+                "Searching playlists relies on the yt-dlp dependency that must be downloaded and possibly added to PATH. You can download the latest EXE from 'https://github.com/yt-dlp/yt-dlp/releases'.",
+                "error",
+                None,
+                ("Understood", "Open Link"),
+            )
+            if btn == 1:
+                webbrowser.open("https://github.com/yt-dlp/yt-dlp/releases")
+            return False
+        else:
+            self.found_dependency = True
+        return True
+
+    def action_yt_create(self):
+        if self.playlist_name is None:
+            return
+        if "?list=" not in self.playlist_url:
+            pygame.display.message_box(
+                "Unexpected link layout",
+                "The provided link is in an unexpected format (?list= expected). Contact the app developer if you think something is wrong.",
+                "error",
+                buttons=[
+                    "Understood",
+                ],
+            )
+            return
+        name = self.playlist_url.split("?list=")[-1]
+        if self.playlist_meta is not None:
+            fname = f"{DATA_PATH}/yt_playlists/{name}"
+            if not os.path.exists(fname):
+                os.mkdir(fname)
+            save_playlist_metadata(self.playlist_meta, f"{DATA_PATH}/yt_playlists/{name}/{name}.json")
+        playlist = Playlist(
+            name,
+            [],
+            None,
+            yt_link=self.playlist_url,
+            yt_name=self.playlist_name,
+        )
+        self.app.playlists.append(playlist)
+        self.close()
 
     def action_folder_from_dialog(self):
         result = filedialog.askdirectory(mustexist=True)
@@ -247,7 +376,7 @@ class NewPlaylistUI(UIComponent):
                     self.selected_folder = None
                     return
         if original is None:
-            playlist = Playlist(name, paths)
+            playlist = Playlist(name, paths, folder_path=path)
             self.app.playlists.append(playlist)
         else:
             realpaths = original.realpaths
@@ -292,7 +421,14 @@ class NewPlaylistUI(UIComponent):
         if Keybinds.check("confirm", event, ignore_input=True):
             if self.create_type == "empty":
                 self.action_create_empty()
-            else:
+            elif self.create_type == "folder":
                 self.action_create_from_folder()
+            else:
+                if self.playlist_name is None:
+                    self.action_yt_search()
+                else:
+                    self.action_yt_create()
         if self.create_type == "empty":
             self.entryline.event(event)
+        if self.create_type == "youtube":
+            self.yt_entry.event(event)

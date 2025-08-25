@@ -1,6 +1,7 @@
 pygame-ce>=2.5.1 # CORE
 mili-ui>=1.0.6 # UI Core Backend
 moviepy>=2.1.2 # Media converter/reader
+av>=15.0.0
 
 # OPTIONAL (remove what you don't want)
 pypresence>=4.3.0 # Discord Presence
@@ -10,3 +11,4 @@ youtube-search-python>=1.6.6 # Alternative YT Search Method
 # FOREIGN DEPENDENCY (manual download, either add to PATH or put the binaries in the same folder as this file)
 # yt-dlp latest (main youtube search method, youtube downloads)
 # ffmpeg latest >= 7.0 (merge youtube audio and video tracks)
+# ffplay latest (comes with ffmpeg, needed to play local files without audio conversion)

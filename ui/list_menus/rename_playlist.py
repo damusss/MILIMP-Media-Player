@@ -3,14 +3,14 @@ import mili
 import pygame
 import pathlib
 from ui.common import *
-from ui.common.entryline import UIEntryline
+from ui.common.data import Entryline
 
 
 class RenamePlaylistUI(UIComponent):
     def init(self):
         self.anim_close = animation(-5)
         self.anim_create = animation(-3)
-        self.entryline = UIEntryline("Enter name...")
+        self.entryline = Entryline(self.app, "Enter name...")
         self.cache = mili.ImageCache()
 
     def ui(self):
@@ -22,7 +22,7 @@ class RenamePlaylistUI(UIComponent):
             if shadowit.left_just_released:
                 self.close()
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
 
             with self.mili.begin(
@@ -44,23 +44,34 @@ class RenamePlaylistUI(UIComponent):
             )
 
     def ui_modal_content(self):
+        can_rename = not self.app.menu_data.is_yt
         self.mili.text_element(
             "Rename Playlist",
-            {"size": self.mult(26)},
+            {"size": self.mult_fs(26)},
             None,
             mili.CENTER | {"blocking": None},
         )
-        self.entryline.update(self.app)
-        self.entryline.ui(
-            self.mili,
-            pygame.Rect(
-                0,
-                0,
-                mili.percentage(80, self.app.split_w / 1.35),
-                self.mult(35),
-            ),
-            {"align": "center"},
-            self.mult,
+        if can_rename:
+            self.entryline.ui(
+                pygame.Rect(
+                    0,
+                    0,
+                    mili.percentage(80, self.app.split_w / 1.35),
+                    self.mult(35),
+                ),
+                {"align": "center"},
+            )
+        else:
+            self.mili.text_element(
+            "The name of this YouTube playlist cannot be changed. Modify the name ",
+            {
+                "size": self.mult_fs(18),
+                "growx": False,
+                "wraplen": mili.percentage(70, self.app.split_w),
+                "slow_grow": True,
+            },
+            None,
+            {"fillx": True, "blocking": None},
         )
         self.ui_image_btn(
             ICONS.confirm,
@@ -71,7 +82,7 @@ class RenamePlaylistUI(UIComponent):
         self.mili.text_element(
             "Renaming might take some time if video files were present",
             {
-                "size": self.mult(16),
+                "size": self.mult_fs(16),
                 "color": (150,) * 3,
                 "growx": False,
                 "wraplen": mili.percentage(70, self.app.split_w),
@@ -118,25 +129,25 @@ class RenamePlaylistUI(UIComponent):
 
     def final_rename(self, name):
         old_name = self.app.menu_data.name
-        for file in os.listdir("data/mp3_converted"):
+        for file in os.listdir(f"{DATA_PATH}/mp3_converted"):
             if file.startswith(old_name):
-                old_path = pathlib.Path(f"data/mp3_converted/{file}").resolve()
+                old_path = pathlib.Path(f"{DATA_PATH}/mp3_converted/{file}").resolve()
                 new_path = pathlib.Path(
-                    f"data/mp3_converted/{name}{file.removeprefix(old_name)}"
+                    f"{DATA_PATH}/mp3_converted/{name}{file.removeprefix(old_name)}"
                 )
                 if not os.path.exists(new_path):
                     os.rename(old_path, new_path)
-        for file in os.listdir("data/music_covers"):
+        for file in os.listdir(f"{DATA_PATH}/music_covers"):
             if file.startswith(old_name):
-                old_path = pathlib.Path(f"data/music_covers/{file}").resolve()
+                old_path = pathlib.Path(f"{DATA_PATH}/music_covers/{file}").resolve()
                 new_path = pathlib.Path(
-                    f"data/music_covers/{name}{file.removeprefix(old_name)}"
+                    f"{DATA_PATH}/music_covers/{name}{file.removeprefix(old_name)}"
                 )
                 if not os.path.exists(new_path):
                     os.rename(old_path, new_path)
-        if os.path.exists(f"data/covers/{old_name}.png"):
-            if not os.path.exists(f"data/covers/{name}.png"):
-                os.rename(f"data/covers/{old_name}.png", f"data/covers/{name}.png")
+        if os.path.exists(f"{DATA_PATH}/covers/{old_name}.png"):
+            if not os.path.exists(f"{DATA_PATH}/covers/{name}.png"):
+                os.rename(f"{DATA_PATH}/covers/{old_name}.png", f"{DATA_PATH}/covers/{name}.png")
         self.app.menu_data.__init__(
             name,
             [

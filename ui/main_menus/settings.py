@@ -12,7 +12,7 @@ class SettingsUI(UIComponent):
         self.anim_handle = animation(-3)
         self.anim_info = animation(-3)
         self.anim_log = animation(-3)
-        self.anims = [animation(-3) for i in range(14)]
+        self.anims = [animation(-3) for i in range(15)]
         self.cache = mili.ImageCache()
         self.slider = mili.Slider(
             {"lock_y": True, "handle_size": (10, 10), "drag_area": False}
@@ -28,7 +28,7 @@ class SettingsUI(UIComponent):
             if shadowit.left_just_released:
                 self.close()
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
 
             with self.mili.begin(
@@ -50,6 +50,13 @@ class SettingsUI(UIComponent):
                 self.anim_close, self.close, ICONS.close, tooltip="Close"
             )
 
+    def ui_line(self):
+        self.mili.hline_element(
+            {"size": 1, "color": (120,) * 3},
+            (0, 0, 0, 1),
+            {"fillx": "80", "align": "center"},
+        )
+
     def ui_modal_content(self):
         with self.mili.begin(None, mili.RESIZE | mili.X | mili.CENTER | {"pady": 0}):
             self.ui_image_btn(
@@ -62,7 +69,7 @@ class SettingsUI(UIComponent):
             )
             self.mili.text_element(
                 "Settings",
-                {"size": self.mult(26)},
+                {"size": self.mult_fs(26)},
                 None,
                 mili.CENTER | {"blocking": None},
             )
@@ -75,7 +82,9 @@ class SettingsUI(UIComponent):
             )
         self.ui_slider()
         self.ui_buttons_top()
+        self.ui_line()
         self.ui_buttons_middle()
+        self.ui_line()
         self.ui_buttons_bottom()
 
     def ui_buttons_top(self):
@@ -123,6 +132,13 @@ class SettingsUI(UIComponent):
                 tooltip="Enable playlist shuffling"
                 if self.state.shuffle
                 else "Enable playlist shuffle",
+            )
+            self.ui_image_btn(
+                ICONS.queue,
+                self.action_queue,
+                self.anims[14],
+                br="50",
+                tooltip="Open queue",
             )
 
     def ui_buttons_middle(self):
@@ -317,7 +333,7 @@ class SettingsUI(UIComponent):
                 if handle.hovered or handle.unhover_pressed:
                     self.app.cursor_hover = True
         return handle
-    
+
     def action_health_check(self):
         self.app.modal_state = "health_check"
         self.app.health_check.refresh()
@@ -365,6 +381,9 @@ class SettingsUI(UIComponent):
     def action_backup_save(self):
         self.app.modal_state = "backup_save"
         self.app.backup_save.refresh_size()
+
+    def action_queue(self):
+        self.app.modal_state = "queue"
 
     def action_notifs(self):
         self.app.modal_state = "notifs"

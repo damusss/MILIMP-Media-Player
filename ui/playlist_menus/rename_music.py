@@ -2,17 +2,18 @@ import os
 import mili
 import pygame
 from ui.common import *
-from ui.common.data import MusicData
-from ui.common.entryline import UIEntryline
+from ui.common.data import MusicData, Entryline
 
 
 class RenameMusicUI(UIComponent):
     def init(self):
         self.anim_close = animation(-5)
         self.anim_create = animation(-3)
-        self.entryline = UIEntryline("Enter name (no filetype)...")
+        self.disk_entry = Entryline(self.app, "Enter name (no filetype)...")
+        self.alias_entry = Entryline(self.app, "Enter alias...", False)
         self.cache = mili.ImageCache()
         self.music: MusicData = None
+        self.rename_mode = "alias"
 
     def ui(self):
         self.mili.id_checkpoint(ID_OFFSET + 180000)
@@ -23,7 +24,7 @@ class RenameMusicUI(UIComponent):
             if shadowit.left_just_released:
                 self.close()
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
 
             with self.mili.begin(
@@ -47,22 +48,47 @@ class RenameMusicUI(UIComponent):
     def ui_modal_content(self):
         self.mili.text_element(
             "Rename Music",
-            {"size": self.mult(26)},
+            {"size": self.mult_fs(26)},
             None,
             mili.CENTER | {"blocking": None},
         )
-        self.entryline.update(self.app)
-        self.mili.element(None, {"blocking": None})
-        self.entryline.ui(
-            self.mili,
+        with self.mili.begin(
+            None,
+            {"fillx": True, "resizey": True, "axis": "x", "anchor": "max_spacing"}
+            | mili.PADLESS,
+        ) as row:
+            with self.mili.begin(
+                (0, 0, row.data.rect.w / 2.01, 0),
+                {"resizey": True, "padx": 0, "pady": 0},
+            ) as left_cont:
+                self.ui_section_btn(
+                    left_cont,
+                    "alias",
+                    "Rename Alias",
+                    "Rename the alias that the track will use while keeping the same name on disk",
+                )
+            with self.mili.begin(
+                (0, 0, row.data.rect.w / 2.01, 0),
+                {"resizey": True, "padx": 0, "pady": 0},
+            ) as left_cont:
+                self.ui_section_btn(
+                    left_cont, "disk", "Rename Locally", "Rename the track on disk"
+                )
+
+        if self.rename_mode == "disk":
+            self.ui_disk()
+        else:
+            self.ui_alias()
+
+    def ui_disk(self):
+        self.disk_entry.ui(
             pygame.Rect(
                 0,
                 0,
-                mili.percentage(80, self.app.split_w / 1.35),
+                0,
                 self.mult(35),
             ),
-            {"align": "center"},
-            self.mult,
+            {"align": "center", "fillx": "90"},
         )
         self.ui_image_btn(
             ICONS.confirm,
@@ -73,7 +99,7 @@ class RenameMusicUI(UIComponent):
         self.mili.text_element(
             "Renaming will modify the file on disk. Do not include the file type.",
             {
-                "size": self.mult(16),
+                "size": self.mult_fs(16),
                 "color": (150,) * 3,
                 "growx": False,
                 "wraplen": mili.percentage(70, self.app.split_w),
@@ -83,9 +109,76 @@ class RenameMusicUI(UIComponent):
             {"fillx": True, "blocking": None},
         )
 
+    def ui_alias(self):
+        self.alias_entry.ui(
+            pygame.Rect(
+                0,
+                0,
+                0,
+                self.mult(35),
+            ),
+            {"align": "center", "fillx": "90"},
+        )
+        self.ui_image_btn(
+            ICONS.confirm,
+            self.action_confirm,
+            self.anim_create,
+            tooltip="Rename the track alias",
+        )
+        self.mili.text_element(
+            "Does not modify the name on disk. Leave empty to remove the current alias.",
+            {
+                "size": self.mult_fs(16),
+                "color": (150,) * 3,
+                "growx": False,
+                "wraplen": mili.percentage(70, self.app.split_w),
+                "slow_grow": True,
+            },
+            None,
+            {"fillx": True, "blocking": None},
+        )
+
+    def ui_section_btn(self, cont, ctype, txt, tooltip):
+        color = (255,) * 3 if self.rename_mode == ctype else (120,) * 3
+        if self.mili.element(None, mili.CENTER | {"blocking": False}):
+            if cont.hovered and self.app.can_interact():
+                self.mili.rect({"color": (MODALB_CV[0],) * 3, "border_radius": "10"})
+            self.mili.text(
+                txt,
+                {"size": self.mult_fs(21), "color": color},
+            )
+        self.mili.line_element(
+            [("-48", 0), ("48", 0)],
+            {"color": color},
+            (0, 0, 0, self.mult(20)),
+            {"fillx": True, "blocking": False},
+        )
+        if self.app.can_interact():
+            if cont.left_just_released:
+                self.rename_mode = ctype
+            if cont.hovered or cont.unhover_pressed:
+                self.app.cursor_hover = True
+            if cont.hovered:
+                self.app.tick_tooltip(tooltip)
+
     def action_confirm(self):
-        new_name = self.entryline.text.strip()
-        if not new_name or self.entryline.text[-1] == ".":
+        if self.rename_mode == "disk":
+            self.action_confirm_disk()
+        else:
+            self.action_confirm_alias()
+
+    def action_confirm_alias(self):
+        new_alias = self.alias_entry.text.strip()
+        if new_alias == "":
+            if self.music.realpath in self.music.playlist.aliases:
+                self.music.playlist.aliases.pop(self.music.realpath)
+        else:
+            self.music.playlist.aliases[self.music.realpath] = new_alias
+        self.close()
+
+    def action_confirm_disk(self):
+        new_name = self.disk_entry.text.strip()
+        if not new_name or self.disk_entry.text[-1] == ".":
             pygame.display.message_box(
                 "Invalid name",
                 "Enter a valid name to rename the music. A name must be a valid file name (cannot end with '.', must be non empty).",
@@ -114,6 +207,7 @@ class RenameMusicUI(UIComponent):
         if self.music == self.state.music:
             self.state.end_music()
         self.app.remove_from_history(self.music)
+        cur_alias = self.music.alias
 
         try:
             os.rename(self.music.realpath, new_path)
@@ -128,15 +222,18 @@ class RenameMusicUI(UIComponent):
             self.close()
             return
 
-        mp3path = f"data/mp3_converted/{self.app.playlist_viewer.playlist.name}_{self.music.realstem}.mp3"
-        newmp3path = f"data/mp3_converted/{self.app.playlist_viewer.playlist.name}_{new_stem}.mp3"
+        if cur_alias is not None:
+            self.music.playlist.aliases.pop(self.music.realpath)
+
+        mp3path = f"{DATA_PATH}/mp3_converted/{self.app.playlist_viewer.playlist.name}_{self.music.realstem}.mp3"
+        newmp3path = f"{DATA_PATH}/mp3_converted/{self.app.playlist_viewer.playlist.name}_{new_stem}.mp3"
         if os.path.exists(mp3path):
             if not os.path.exists(newmp3path):
                 os.rename(mp3path, newmp3path)
 
-        coverpath = f"data/music_covers/{self.app.playlist_viewer.playlist.name}_{self.music.realstem}.png"
+        coverpath = f"{DATA_PATH}/music_covers/{self.app.playlist_viewer.playlist.name}_{self.music.realstem}.png"
         if os.path.exists(coverpath):
-            newcoverpath = f"data/music_covers/{self.app.playlist_viewer.playlist.name}_{new_stem}.png"
+            newcoverpath = f"{DATA_PATH}/music_covers/{self.app.playlist_viewer.playlist.name}_{new_stem}.png"
             if not os.path.exists(newcoverpath):
                 os.rename(coverpath, newcoverpath)
 
@@ -148,9 +245,12 @@ class RenameMusicUI(UIComponent):
             idx,
         )
 
+        if cur_alias is not None:
+            self.app.playlist_viewer.playlist.aliases[new_path] = cur_alias
+
     def close(self):
-        self.entryline.text = ""
-        self.entryline.cursor = 0
+        self.disk_entry.text = ""
+        self.disk_entry.cursor = 0
         self.app.playlist_viewer.modal_state = "none"
 
     def event(self, event):
@@ -160,4 +260,7 @@ class RenameMusicUI(UIComponent):
             self.close()
         if Keybinds.check("confirm", event, ignore_input=True):
             self.action_confirm()
-        self.entryline.event(event)
+        if self.rename_mode == "disk":
+            self.disk_entry.event(event)
+        else:
+            self.alias_entry.event(event)

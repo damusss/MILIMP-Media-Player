@@ -4,23 +4,28 @@ import threading
 from ui.common import *
 
 if typing.TYPE_CHECKING:
-    from MILIMP import MILIMP
+    from ui.MILIMP import MILIMP
 
 
 def discord_presence_connect(presence: "DiscordPresence"):
     try:
         presence.presence.connect()
     except presence.pypresence.DiscordNotFound as exc:
-        presence.connect_error = str(exc)
-        presence.discord_not_found = True
+        if not presence.startup:
+            presence.connect_error = str(exc)
+            presence.discord_not_found = True
+        presence.startup = False
         return
     except presence.pypresence.PyPresenceException as exc:
-        presence.connect_error = str(exc)
-        presence.discord_not_found = False
+        if not presence.startup:
+            presence.connect_error = str(exc)
+            presence.discord_not_found = False
+        presence.startup = False
         return
     presence.active = True
     presence.connecting = False
     presence.last_update = -9999
+    presence.startup = False
     presence.app.notify(NOTIF.DISCORD, "Discord presence connected")
 
 
@@ -34,6 +39,7 @@ class DiscordPresence:
         self.discord_not_found = False
         self.connect_start_time = 0
         self.connecting = False
+        self.startup = True
         try:
             import pypresence
 
@@ -68,6 +74,13 @@ class DiscordPresence:
         )
         thread.start()
 
+    def trim(self, text):
+        if text is None:
+            return text
+        if len(text) <= 128:
+            return text
+        return text[: (128 - 3)] + "..."
+
     def update(self):
         self.last_update = pygame.time.get_ticks()
         if not self.active or self.pypresence is None or self.pending_update:
@@ -78,18 +91,18 @@ class DiscordPresence:
         state = "Idle"
         details = None
         if self.app.view_state == "playlist":
-            details = f"Playlist: {self.app.playlist_viewer.playlist.name}"
+            details = f"Playlist: {self.app.playlist_viewer.playlist.display_name}"
         elif self.app.view_state == "search":
-            details = "Searching Music"
+            details = "Searching YT Music"
+        elif self.app.view_state == "explorer":
+            details = "Exploring Local Music"
         start = self.app.start_time
         small_image = None
         small_text = None
 
         if self.state.music is not None:
-            state = (
-                f"Listening to: {parse_music_stem(self.app, self.state.music.realstem)}"
-            )
-            details = f"Playlist: {self.state.music.playlist.name}"
+            state = f"Listening to: {self.state.music.name_or_alias(self.app)}"
+            details = f"{'Folder' if self.state.music.virtual else 'Playlist'}: {self.state.music.playlist.display_name}"
             start = self.state.music_start_time
             small_image = "mili_miniplayer_icon"
             small_text = "Music is playing"
@@ -97,18 +110,20 @@ class DiscordPresence:
                 small_image = "mili_paused_icon"
                 small_text = "Music is paused"
 
-        try:
-            thread = threading.Thread(
-                target=self.update_async,
-                args=(state, details, start, small_image, small_text),
-                daemon=True,
-            )
-            self.pending_update = True
-            thread.start()
-        except self.pypresence.PipeClosed:
-            self.end()
-            return
-        except self.pypresence.PyPresenceException as exc:
+        thread = threading.Thread(
+            target=self.update_async,
+            args=(
+                self.trim(state),
+                self.trim(details),
+                start,
+                small_image,
+                small_text,
+            ),
+            daemon=True,
+        )
+        self.pending_update = True
+        thread.start()
+        """except self.pypresence.PyPresenceException as exc:
             pygame.display.message_box(
                 "Failed to update the discord presence",
                 f"Updating the discord presence raised the following exception: '{
@@ -122,18 +137,23 @@ class DiscordPresence:
             try:
                 self.end()
             except Exception:
-                pass
+                pass"""
 
     def update_async(self, state, details, start, small_image, small_text):
-        self.presence.update(
-            state=state,
-            details=details,
-            start=start,
-            large_image="MILIMP_logo",
-            large_text="MILIMP is connected to Discord",
-            small_image=small_image,
-            small_text=small_text,
-        )
+        try:
+            self.presence.update(
+                state=state,
+                details=details,
+                start=start,
+                large_image="MILIMP_logo",
+                large_text="MILIMP is connected to Discord",
+                small_image=small_image,
+                small_text=small_text,
+            )
+        except self.pypresence.exceptions.ServerError:
+            ...
+        except self.pypresence.exceptions.PipeClosed:
+            self.end()
         self.pending_update = False
 
     def update_connecting(self):
@@ -141,7 +161,9 @@ class DiscordPresence:
             self.connecting = False
             self.active = False
             self.connect_error = None
-            messagebox_notify(self.app, NOTIF.DISCORD,
+            messagebox_notify(
+                self.app,
+                NOTIF.DISCORD,
                 "Failed to connect to discord",
                 "The connection with discord took too much time. Make sure you have an internet connection and try to connect again.",
                 "error",
@@ -151,7 +173,9 @@ class DiscordPresence:
 
     def show_error(self):
         if self.discord_not_found:
-            messagebox_notify(self.app, NOTIF.DISCORD,
+            messagebox_notify(
+                self.app,
+                NOTIF.DISCORD,
                 "Failed to connect to discord",
                 "Discord must be installed and running for the discord presence to work.",
                 "error",
@@ -159,7 +183,9 @@ class DiscordPresence:
                 ("Understood",),
             )
         else:
-            messagebox_notify(self.app, NOTIF.DISCORD,
+            messagebox_notify(
+                self.app,
+                NOTIF.DISCORD,
                 "Failed to connect to discord",
                 f"The module 'pypresence' raised this exception while trying to connect to discord: '{
                     self.connect_error

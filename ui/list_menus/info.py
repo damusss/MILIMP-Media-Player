@@ -21,14 +21,14 @@ class InfoUI(UIComponent):
             if shadowit.left_just_released:
                 self.close()
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
             perc = 95 if self.app.split_w < 1200 else 60
             with self.mili.begin(
                 (0, 0, 0, 0),
                 {
                     "fillx": str(perc),
-                    "filly": "80",
+                    "filly": "70",
                     "align": "center",
                     "offset": (
                         0,
@@ -42,7 +42,7 @@ class InfoUI(UIComponent):
                 self.mili.rect({"color": (MODAL_CV,) * 3, "border_radius": "5"})
                 self.mili.text_element(
                     "Technical Information",
-                    {"size": self.mult(26)},
+                    {"size": self.mult_fs(26)},
                     None,
                     mili.CENTER | {"blocking": None},
                 )
@@ -56,7 +56,7 @@ class InfoUI(UIComponent):
                     self.mili.text_element(
                         INFO,
                         {
-                            "size": self.mult(16),
+                            "size": self.mult_fs(16),
                             "color": (180,) * 3,
                             "growx": False,
                             "wraplen": mili.percentage(perc - 10, self.app.split_w),

@@ -7,10 +7,17 @@ import typing
 import subprocess
 
 if typing.TYPE_CHECKING:
-    from MILIMP import MILIMP
+    from ui.MILIMP import MILIMP
     from ui.state import MusicState
 
-DEV_VERSION = 39
+DATA_PATH = None
+if os.path.exists("data_path"):
+    with open("data_path", "r") as file:
+        DATA_PATH = file.read()
+if not os.path.exists(DATA_PATH):
+    DATA_PATH = None
+PREF_ORG, PREF_APP = "MILIMP", "MILIMP"
+DEV_VERSION = 40
 PREFERRED_SIZES = (415, 700)
 MINIP_PREFERRED_SIZES = 200, 200
 UI_SIZES = (480, 720)
@@ -30,6 +37,7 @@ VIDEO_SUPPORTED = [
     "ogv",
     "mts",
     "ts",
+    "mxf",
 ]
 CONVERT_SUPPORTED = [
     "aac",
@@ -44,14 +52,17 @@ CONVERT_SUPPORTED = [
     "caf",
     "webm",
 ]
-FORMATS = (
-    VIDEO_SUPPORTED
-    + CONVERT_SUPPORTED
-    + ["wav", "mp3", "ogg", "flac", "opus", "wv", "mod", "aiff"]
-)
+PYGAME_SUPPORTED = ["wav", "mp3", "ogg", "flac", "opus", "wv", "mod", "aiff"]
+FORMATS = VIDEO_SUPPORTED + CONVERT_SUPPORTED + PYGAME_SUPPORTED
 POS_UNSUPPORTED = ["wav", "opus", "wv", "aiff"]
 MUSIC_ENDEVENT = pygame.event.custom_type()
+SORT_SCROLL_DIVIDER = 4
+SORT_INDICATOR_SIZE = 2
+ITEM_H = 80
+EXPLORER_ITEM_H = 60
+FAV_ITEM_H = 70
 HISTORY_LEN = 100
+EXPLORER_HISTORY_LEN = 20
 RESIZE_SIZE = 3
 WIN_MIN_SIZE = (200, 300)
 DISCORD_COOLDOWN = 20000
@@ -60,6 +71,8 @@ SAVE_COOLDOWN = 60000 * 2
 TOOLTIP_COOLDOWN = 1200
 SPLIT_SCREEN = 1.7
 RATIO_MIN = 0.52
+RED_COLS = (130, 0, 0), (180, 0, 0), (100, 0, 0)
+MENU_BG_COL = (0, 0, 0, 200)
 BG_CV = 3
 MUSIC_CV = 3, 18, 8
 LIST_CV = MUSIC_CV
@@ -81,7 +94,6 @@ TOPB_CV = 15, 25, 8
 GROUP_CV = MUSIC_CV
 ID_OFFSET = 5000
 ID_POST_OFFSET = 500000
-LARGE_MEDIA_SIZE = 900000000
 SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if getattr(sys, "frozen", False) else 0
 RUNNING_INSTANCE_SENTINEL = "__runninginstance__"
 THUMBNAILS = {
@@ -95,20 +107,37 @@ INFO = """MILIMP uses the pygame.mixer.music module to play audio (which uses SD
 
 The youtube search/download interface is performed by the yt-dlp library. That library is an external tool that needs to be installed and added to PATH. Any operation network related is handled by yt-dlp using threaded subprocesses that happen in the background. Check the terminal to see detailed information. Every foreign command can take an arbitrary amount of time to be completed.
 
-The ability to stream video frames in the application is not possible with pygame. Moviepy is used again, which uses ffmpeg. Extracting frames is generally a slow operation - it's possible for it to be smooth thanks to ffmpeg ability to manage sequential frames. This means that quickly jumping to a different music position won't be as smooth and ffmpeg will need to adjust to the new position. This process can take a small time or be noticeable depending on how heavy the video is.
+The ability to stream video frames in the application is not possible with pygame. pyAV is used for this operation, making it rather fast and optimized. Small lag could occur if the music position is changed, as the library has to seek to the new position instead of reading sequential frames.
 
-Usually, the frame extraction is performed on a different thread. This means that for most videos the app will remain at a very high framerate and the video won't slow it down. If the video is heavy (big file size or high resolution), some lag might occur when starting it or jumping positions because the video thread has less CPU power to work with. A heavy video will probably lag if many UI menus are open inside the application as the main thread will steal too much power.
-
-By default, if a video's size is larger than the monitor, the ffmpeg target resolution is reduced to match the monitor. If a video is larger than 900 Megabytes the media is considered "heavy". In that case the resolution will be kept but the nearest neighbor scaling alogorithm will be used. If the video is multithreaded the fast bilinear algorithm is used and the video is scaled down by 1.5x (compared to the monitor's size). If hardware acceleration is enabled, the scaling is less severe (1.2x)
-
-You can disable video multithreading at any time in the settings. This is not advised for small videos, but might be benefitial for heavy ones, because the frame extraction happens on the same thread and has all the CPU power it needs (reducing the app's framerate). No multithreading will eliminate lag and is probably the best choice for very heavy videos.
-
-If, with multithreading, the video file is considered heavy or if it keeps lagging regardless of optimizations the app's FPS are lowered to 30 to allow the frame extraction to use more power.
+You can disable video multithreading at any time in the settings. Video multithreading avoids to have lag on the application if any lag on the video reading occurs, but it will steal CPU power from the video. Disable it if you feel like it could be beneficial.
 """
-USE_RENDERER = True
-if os.path.exists("data/gpu.json"):
-    with open("data/gpu.json", "r") as file:
+USE_RENDERER = False
+if DATA_PATH is not None and os.path.exists(f"{DATA_PATH}/gpu.json"):
+    with open(f"{DATA_PATH}/gpu.json", "r") as file:
         USE_RENDERER = json.load(file)
+
+
+def win_set_app_id():
+    if "win" in sys.platform or os.name == "nt":
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "damusss.milimp_media_player.1.0"
+        )
+
+
+def format_views(n):
+    suffix = ""
+    if n >= 1_000_000_000:
+        n = round(n / 1_000_000_000, 3)
+        suffix = "B"
+    elif n >= 1_000_000:
+        n = round(n / 1_000_000, 3)
+        suffix = "M"
+    elif n >= 1_000:
+        n = round(n / 1000, 3)
+        suffix = "K"
+    return n, suffix
 
 
 def get_img_cache():
@@ -240,6 +269,9 @@ class UIComponent:
             return int(size * self.app.ui_mult)
         return max(0, int(size * self.app.ui_mult))
 
+    def mult_fs(self, size, clamp0=True):
+        return self.mult(size - 2.5 if self.app.universal_font else size, clamp0)
+
     def ui_scrollbar(self):
         self.scrollbar: mili.Scrollbar
         if self.scrollbar.needed:
@@ -269,15 +301,17 @@ class UIComponent:
         br="50",
         tooltip=None,
         imgpad=0,
+        colors=None,
     ):
+        if colors is None:
+            colors = ((MODAL_CV,) * 3, (MODALB_CV[1],) * 3, (MODALB_CV[2],) * 3)
         if it := self.mili.element(
             (0, 0, self.mult(size), self.mult(size)),
             {"align": "center", "clip_draw": False},
         ):
             (self.mili.rect if br != "50" else self.mili.circle)(
                 {
-                    "color": (cond(self.app, it, MODAL_CV, MODALB_CV[1], MODALB_CV[2]),)
-                    * 3,
+                    "color": cond(self.app, it, *colors),
                     "border_radius": br,
                     "pad": self.mult(
                         anim.value / 2 if br != "50" else anim.value / 2, False
@@ -316,6 +350,7 @@ class UIComponent:
         side=0,
         tooltip=None,
         x_side="right",
+        sidex=0,
     ):
         size = self.mult(50)
         offset = self.mult(8)
@@ -336,6 +371,11 @@ class UIComponent:
                 and self.app.yt_search.scrollbar.needed
                 and self.app.yt_search.modal_state == "none"
             )
+            or (
+                self.app.view_state == "explorer"
+                and self.app.explorer.scrollbar.needed
+                and self.app.explorer.modal_state == "none"
+            )
         ):
             xoffset = offset * 1.6
         sideoffset = side * size + side * (offset / 2)
@@ -346,11 +386,8 @@ class UIComponent:
         if it := self.mili.element(
             pygame.Rect(0, 0, size, size).move_to(
                 bottomright=(
-                    (
-                        self.app.split_w - xoffset
-                        if x_side == "right"
-                        else offset + size
-                    ),
+                    (self.app.split_w - xoffset if x_side == "right" else offset + size)
+                    - sidex * (size + offset),
                     self.app.window.size[1]
                     - self.app.tbarh
                     - offset
@@ -405,7 +442,7 @@ class UIComponent:
         if self.app.custom_title:
             size = self.app.tbarh
         else:
-            y = self.mili.text_size("Media Player", {"size": self.mult(35)}).y
+            y = self.mili.text_size("Media Player", {"size": self.mult_fs(35)}).y
             size = self.mult(36)
             offset = self.mult(10)
         winw = (
@@ -542,20 +579,18 @@ class Keybinds:
             "back_5_s": Binding(pygame.K_LEFT, pygame.K_KP4),
             "skip_5_s": Binding(pygame.K_RIGHT, pygame.K_KP6),
             "quit": Binding(pygame.K_q, ctrl=True),
-            "new/add": Binding(pygame.K_a, ctrl=True),
+            "new/add": Binding(pygame.K_PLUS, ctrl=True),
             "save": Binding(pygame.K_s, ctrl=True),
             "open_history": Binding(pygame.K_h, ctrl=True),
             "open_keybinds": Binding(pygame.K_k, ctrl=True),
+            "open_queue": Binding(pygame.K_w, ctrl=True),
             "toggle_search": Binding(pygame.K_f, ctrl=True),
-            "erase_input": Binding(pygame.K_BACKSPACE, ctrl=True),
-            "change_cover": Binding(pygame.K_c, ctrl=True),
             "end_music": Binding(pygame.K_e, ctrl=True),
             "rewind_music": Binding(pygame.K_r, ctrl=True),
             "toggle_miniplayer": Binding(pygame.K_d, ctrl=True),
             "music_fullscreen": Binding(pygame.K_F11, ctrl=True),
             "minimize_window": Binding(pygame.K_l, ctrl=True),
             "maximize_window": Binding(pygame.K_m, ctrl=True),
-            "clean_controls_ui": Binding(pygame.K_F1),
             "refresh_yt_search": Binding(pygame.K_x, ctrl=True),
             "toggle_videoclip_threading": Binding(pygame.K_t, ctrl=True),
             "scroll_up": Binding(pygame.K_PAGEUP, pygame.K_KP9),
@@ -587,6 +622,7 @@ class Icons:
         self.loading = load_icon("loading")
         self.confirm = load_icon("confirm")
         self.back = load_icon("back")
+        self.back_back = pygame.transform.flip(self.back, True, False)
         self.delete = load_icon("delete")
         self.rename = load_icon("edit")
         self.loopon = load_icon("loopon")
@@ -604,6 +640,7 @@ class Icons:
         self.brush = load_icon("brush")
         self.borderless = load_icon("borderless")
         self.minip_back = pygame.transform.flip(load_icon("opennew"), True, False)
+        self.up_arrow = pygame.transform.rotate(self.back, -90)
         self.play = load_icon("play")
         self.pause = load_icon("pause")
         self.skip_next = load_icon("skip_next")
@@ -670,6 +707,12 @@ class Icons:
         self.checkbox_off = load_icon("checkboxoff")
         self.folder_move = load_icon("folder_move")
         self.health = load_icon("health")
+        self.yt_playlist = load_icon("yt_playlist")
+        self.folder = load_icon("folder")
+        self.explore = load_icon("explore")
+        self.favorite = load_icon("favorite")
+        self.not_favorite = load_icon("not_favorite")
+        self.queue = load_icon("queue")
 
 
 class NOTIF:
@@ -684,6 +727,8 @@ class NOTIF:
     INFO = "infoon"
     ERROR = "error"
     CONFIRM = "confirm"
+    REFRESH = "refresh"
+    DELETE = "delete"
 
 
 ICONS = Icons()

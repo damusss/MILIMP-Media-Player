@@ -1,3 +1,10 @@
+import av.codec
+import av.codec.hwaccel
+import av.container
+import av.error
+import av.stream
+import av.video
+import av.video.reformatter
 import numpy
 import pygame
 import pathlib
@@ -8,7 +15,9 @@ from pygame._sdl2 import video as pgvideo
 from ui.common import *
 import moviepy
 import zipfile
-
+import av
+import os
+import math
 
 try:
     import webview
@@ -43,6 +52,24 @@ def get_cover_async(music: "MusicData", videofile: moviepy.VideoClip, cover_path
         music.cover = None
 
 
+def get_virtual_cover_async(track: "VirtualMusic", path, fail_icon):
+    try:
+        cont = av.open(str(path))
+        stream = cont.streams.video[0]
+        duration = stream.duration
+        if duration is None:
+            duration = 0
+        cont.seek(int((duration / 2) / stream.time_base), stream=stream)
+        decoder = cont.decode(stream)
+        frame = next(decoder)
+        track.cover = pygame.surfarray.make_surface(
+            numpy.transpose(frame.reformat(format="rgb24").to_ndarray(), (1, 0, 2))
+        )
+    except Exception as e:
+        print(e)
+        track.cover = fail_icon
+
+
 def convert_music_async(
     music: "MusicData", audiofile: moviepy.AudioClip, new_path, success=None
 ):
@@ -63,41 +90,95 @@ def convert_music_async(
 def create_backup_async(categories, path, comp):
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zfile:
         if categories["Settings"]:
-            zfile.write("data/settings.json", "settings.json")
-            zfile.write("data/gpu.json", "gpu.json")
+            zfile.write(f"{DATA_PATH}/settings.json", "settings.json")
+            zfile.write(f"{DATA_PATH}/gpu.json", "gpu.json")
         if categories["Playlists"]:
-            zfile.write("data/playlists.json", "playlists.json")
+            zfile.write(f"{DATA_PATH}/playlists.json", "playlists.json")
         if categories["History"]:
-            zfile.write("data/history.json", "history.json")
-            zfile.write("data/search_results.json", "search_results.json")
+            zfile.write(f"{DATA_PATH}/history.json", "history.json")
+            zfile.write(f"{DATA_PATH}/search_results.json", "search_results.json")
         if categories["Playlist Covers"]:
             zfile.mkdir("covers")
-            for file in os.listdir("data/covers"):
-                zfile.write(f"data/covers/{file}", f"covers/{file}")
+            for file in os.listdir(f"{DATA_PATH}/covers"):
+                zfile.write(f"{DATA_PATH}/covers/{file}", f"covers/{file}")
         if categories["Music Covers"]:
             zfile.mkdir("music_covers")
-            for file in os.listdir("data/music_covers"):
-                zfile.write(f"data/music_covers/{file}", f"music_covers/{file}")
+            for file in os.listdir(f"{DATA_PATH}/music_covers"):
+                zfile.write(f"{DATA_PATH}/music_covers/{file}", f"music_covers/{file}")
         if categories["MP3 Converted"]:
             zfile.mkdir("mp3_converted")
-            for file in os.listdir("data/mp3_converted"):
-                zfile.write(f"data/mp3_converted/{file}", f"mp3_converted/{file}")
+            for file in os.listdir(f"{DATA_PATH}/mp3_converted"):
+                zfile.write(
+                    f"{DATA_PATH}/mp3_converted/{file}", f"mp3_converted/{file}"
+                )
         if categories["YT Downloads"]:
-            for folder, subfolders, files in os.walk("data/yt_downloads"):
-                zfile.mkdir(folder.removeprefix("data/"))
+            for folder, subfolders, files in os.walk(f"{DATA_PATH}/yt_downloads"):
+                zfile.mkdir(folder.removeprefix(f"{DATA_PATH}/"))
                 for file in files:
-                    zfile.write(os.path.join(f"{folder.removeprefix('data/')}", file))
+                    save = pathlib.Path(os.path.join(folder, file)).relative_to(
+                        f"{DATA_PATH}"
+                    )
+                    zfile.write(os.path.join(folder, file), save)
+        if categories["YT Playlists"]:
+            for folder, subfolders, files in os.walk(f"{DATA_PATH}/yt_playlists"):
+                zfile.mkdir(folder.removeprefix(f"{DATA_PATH}/"))
+                for file in files:
+                    save = pathlib.Path(os.path.join(folder, file)).relative_to(
+                        f"{DATA_PATH}"
+                    )
+                    zfile.write(os.path.join(folder, file), save)
     comp.backing_up = False
     comp.app.notify(NOTIF.DOWNLOAD, f"Backup saved to '{path}'")
 
 
+class Entryline(mili.EntryLine):
+    def __init__(
+        self,
+        app: "MILIMP",
+        placeholder="Enter text...",
+        target_files=True,
+        bgcol=20,
+        outlinecol=40,
+        txtcol="white",
+        specialspaces=False,
+    ):
+        self.app = app
+        super().__init__(
+            "",
+            {
+                "placeholder": placeholder,
+                "validator_windows_path": target_files,
+                "bg_rect_style": {"color": (bgcol,) * 3, "border_radius": 0},
+                "outline_rect_style": {
+                    "color": (outlinecol,) * 3,
+                    "outline": 1,
+                    "border_radius": 0,
+                },
+                "text_style": {"color": txtcol},
+                "space_characters": [" ", "\\", "/"] if specialspaces else [" "],
+            },
+        )
+
+    def set_text(self, text):
+        self.text = text
+
+    def ui(self, rect, style):
+        if self.focused:
+            self.app.input_stolen = True
+        self.style["text_style"]["size"] = self.app.mult_fs(20)
+        with self.app.mili.begin(rect, style | {"axis": "x"}) as cont:
+            with self.app.mili.push_styles(rect={"border_radius": 0}):
+                super().ui(cont)
+
+
 class MenuButton:
-    def __init__(self, icon, action, animation, br="50", tooltip=""):
+    def __init__(self, icon, action, animation, br="50", tooltip="", red=False):
         self.icon = icon
         self.action = action
         self.animation = animation
         self.br = br
         self.tooltip = tooltip
+        self.red = red
 
 
 class Notification:
@@ -131,6 +212,15 @@ class SafeRunningContext:
                     async_videoclip.alive = False
                     if self.app.state.videoclip_threaded:
                         async_videoclip.thread.join()
+                yt_syncer = self.app.playlist_viewer.yt_syncer
+                if yt_syncer.alive and yt_syncer.thread is not None:
+                    yt_syncer.alive = False
+                    yt_syncer.force_quit = True
+                    yt_syncer.thread.join()
+                audioplayer = self.app.state.async_audioplayer
+                if audioplayer is not None:
+                    audioplayer.alive = False
+                    audioplayer.thread.join()
             print(f"Application aborted with an exception ({exctype.__name__}).")
 
 
@@ -312,160 +402,352 @@ class AsyncYTEmbed:
         self.process.kill()
 
 
+class VideoclipRect:
+    def __init__(
+        self, videoclip: "AsyncVideoclipGetter", preview=False, miniplayer=False
+    ):
+        self.videoclip = videoclip
+        self.rect = None
+        self.active = False
+        self.output = None
+        self.preview = preview
+        self.texture = None
+        self.miniplayer = miniplayer
+        self.resampler = av.video.reformatter.VideoReformatter()
+
+    def get_or(self, image):
+        if self.output is not None:
+            if USE_RENDERER:
+                return self.texture, True
+            return self.output, True
+        return image, False
+
+    def set_rect(self, rect):
+        if self.rect != rect and not self.videoclip.active:
+            self.videoclip.refresh_frame = True
+        self.rect = rect
+
+    def update_texture(self, app: "MILIMP"):
+        if not USE_RENDERER:
+            return
+        renderer = (
+            app.music_controls.minip.mili.canva._renderer
+            if self.miniplayer
+            else app.mili.canva._renderer
+        )
+        if self.texture is None or self.output.size != (
+            self.texture.width,
+            self.texture.height,
+        ):
+            self.texture = pgvideo.Texture.from_surface(renderer, self.output)
+            return
+        self.texture.update(self.output)
+
+
 class AsyncVideoclipGetter:
     def __init__(self, realpath, app: "MILIMP"):
         self.app = app
         self.state = app.state
-        self.first = True
         self.realpath = realpath
         self.thread = None
         self.active = False
-        self.videoclip = None
         self.time = None
-        self.output = None
-        self.scaled_output = {}
+        self.outputs = {}
         self.framerate = 60
         self.alive = True
         self.clock = pygame.Clock()
-        self.rects = []
         self.close_on_kill = True
-        self.desktop_size = pygame.Vector2(pygame.display.get_desktop_sizes()[0])
-        self.is_large_media = False
-        self.remake_videoclip = False
-        self.fps_history = []
-        self.last_fps_check = pygame.time.get_ticks()
         self.current_fps = 0
-        self.original_size = None
-        self.videoclip_scaled = False
-        self.textures = {}
+        self.container: av.container.InputContainer = None
+        self.stream: av.VideoStream = None
+        self.decoder = None
+        self.main_rect = VideoclipRect(self)
+        self.miniplayer_rect = VideoclipRect(self, miniplayer=True)
+        self.preview_rect = VideoclipRect(self, True)
+        self.rects = [self.main_rect, self.miniplayer_rect, self.preview_rect]
+        self.last_frame_time = -1
+        self.frame_queue = []
+        self.refresh_frame = False
+        self.last_frame = None
 
-    def make_videoclip(self):
-        if self.videoclip is not None:
-            self.videoclip.close()
-        self.videoclip_scaled = False
-        filesize = os.path.getsize(self.realpath)
-        self.is_large_media = filesize > LARGE_MEDIA_SIZE
-        resize = (
-            (
-                "neighbor"
-                if USE_RENDERER
-                else "fast_bilinear"
-                if self.state.videoclip_threaded
-                else "neighbor"
-            )
-            if self.is_large_media
-            else "bicubic"
+    def load_container(self):
+        self.container = av.open(
+            self.realpath,
         )
-        self.videoclip = moviepy.VideoFileClip(
-            self.realpath, audio=False, resize_algorithm=resize
-        )
-        desktop = self.desktop_size
-        if self.is_large_media:
-            desktop = self.desktop_size / (
-                1.2 if USE_RENDERER else 1.5 if self.state.videoclip_threaded else 1
-            )
-        size = pygame.Vector2(self.videoclip.size)
-        self.original_size = size
-        new_size = None
-        if size.x > desktop.x:
-            change_ratio = desktop.x / size.x
-            new_w = desktop.x
-            new_h = size.y * change_ratio
-            if new_h > desktop.y:
-                new_h = desktop.y
-                ratio = size.y / size.x
-                new_w = new_h * ratio
-            new_size = (int(new_w), int(new_h))
-        elif size.y > desktop.y:
-            ratio = size.y / size.x
-            new_h = desktop.y
-            new_w = new_h * ratio
-            if new_w > desktop.x:
-                ratio = size.x / size.y
-                new_w = desktop.x
-                new_h = new_w * ratio
-            new_size = (int(new_w), int(new_h))
-        if new_size is not None:
-            self.videoclip.close()
-            self.videoclip = moviepy.VideoFileClip(
-                self.realpath,
-                target_resolution=new_size,
-                audio=False,
-                resize_algorithm=resize,
-            )
-            self.videoclip_scaled = True
+        self.stream = self.container.streams.video[0]
+        #self.stream.thread_type = "FRAME"
+        devices = av.codec.hwaccel.hwdevices_available()
+        self.stream.codec_context.options = {
+            "hwaccel": devices[0],  # or try 'dxva2', 'd3d11va', 'nvdec'
+            "hwaccel_device": "0",
+            "hwaccel_output_format": devices[0],
+            #"threads": "auto"
+        }
+        self.decoder = None
+        self.frame_queue = []
 
-    def load_videoclip(self):
-        try:
-            self.make_videoclip()
-        except Exception as e:
-            self.alive = False
-            print(e)
-        self.first = False
+    def fit_frame(self, rect: pygame.Rect):
+        original_width = self.stream.coded_width
+        original_height = self.stream.coded_height
+        target_width, target_height = rect.size
+
+        width_ratio = target_width / original_width
+        height_ratio = target_height / original_height
+        scale = min(width_ratio, height_ratio)
+
+        new_width = int(original_width * scale)
+        new_height = int(original_height * scale)
+
+        return new_width, new_height
 
     def update(self):
-        if (self.videoclip is None and self.first) or self.remake_videoclip:
-            self.load_videoclip()
-            self.remake_videoclip = False
-        if not self.active or self.videoclip is None or self.time is None:
-            self.clock.tick(10)
-            return
+        if self.container is None and self.alive:
+            self.load_container()
         if (
-            self.state.videoclip_threaded
-            and not self.state.need_low_fps
-            and self.state.user_framerate != 30
+            self.time is not None
+            and self.state.videoclip_on
+            and not self.active
+            and self.refresh_frame
+            and self.last_frame is not None
         ):
-            self.clock.tick(min(self.videoclip.fps + 5, self.framerate))
+            self.refresh_frame = False
+            self.update_frame(self.last_frame)
+        if not self.active or self.time is None or not self.state.videoclip_on:
+            if self.state.videoclip_threaded:
+                self.clock.tick(10)
+            return
+        if self.state.videoclip_threaded:
+            fps = self.stream.average_rate
+            if fps is None:
+                fps = self.framerate - 1
+            self.clock.tick(min(fps + 1, self.framerate))
             self.current_fps = self.clock.get_fps()
-            if self.state.videoclip_on and len(self.fps_history) < 200:
-                now = pygame.time.get_ticks()
-                if self.current_fps != 0 and now - self.last_fps_check >= 500:
-                    self.fps_history.append(self.current_fps)
-                    self.last_fps_check = now
-                if len(self.fps_history) > 6:
-                    average = sum(self.fps_history) / len(self.fps_history)
-                    if average < 15:
-                        self.state.need_low_fps = True
-        if self.state.videoclip_on:
-            self.output = pygame.surfarray.make_surface(
-                numpy.transpose(self.videoclip.get_frame(self.time), (1, 0, 2))
-            )
-            self.scaled_output = {}
-            self.small_output = None
-            small_output = None
-            smallest = float("inf")
-            for pad, rect in self.rects:
-                res = mili.fit_image(rect, self.output, pad, pad, smoothscale=True)
-                ores = res
-                if USE_RENDERER:
-                    if rect.size in self.textures:
-                        tex = self.textures[rect.size]
-                        tex.update(res)
-                        res = tex
-                    else:
-                        tex = pgvideo.Texture.from_surface(self.app.canva, res)
-                        self.textures[rect.size] = tex
-                        res = tex
-                self.scaled_output[rect.size] = res
-                if rect.w * rect.h < smallest:
-                    small_output = ores
-                    smallest = rect.w * rect.h
-            self.small_output = small_output
-        else:
-            self.output = None
-            self.scaled_output = {}
-            self.small_output = None
+        time_pts = int(self.time / self.stream.time_base)
+        if self.decoder is None or abs(self.time - self.last_frame_time) > 1.2:
+            self.container.seek(time_pts, stream=self.stream)
+            self.decoder = self.container.decode(self.stream)
+            self.frame_queue.clear()
+
+        while True:
+            try:
+                if not self.frame_queue:
+                    # bef = time.perf_counter()
+                    frame = next(self.decoder)
+                    # print((time.perf_counter() - bef) * 1000)
+                    self.frame_queue.append(frame)
+                elif self.frame_queue[0].pts < time_pts:
+                    self.frame_queue.pop(0)
+                else:
+                    break
+            except StopIteration:
+                break
+
+        if self.frame_queue:
+            frame = self.frame_queue[0]
+            self.last_frame_time = frame.pts * self.stream.time_base
+            self.last_frame = frame
+            self.update_frame(frame)
+
+    def update_frame(self, frame):
+        for rect in self.rects:
+            heavy = self.stream.coded_width > 6000 and self.stream.coded_height > 3000
+            if not rect.active and rect.rect is None:
+                continue
+            if rect.preview and heavy:
+                rect.output = None
+                continue
+            # bef = time.perf_counter()
+            size = self.fit_frame(rect.rect)
+            try:
+                resized = rect.resampler.reformat(
+                    frame,
+                    size[0],
+                    size[1],
+                    "rgb24",
+                    interpolation="POINT"
+                    if heavy
+                    else ("BILINEAR" if rect.preview else "BICUBIC"),
+                )
+            except av.error.ValueError:
+                rect.output = None
+                continue
+            array = numpy.transpose(resized.to_ndarray(), (1, 0, 2))
+            surface = pygame.surfarray.make_surface(array)
+            # print((time.perf_counter() - bef) * 1000)
+            rect.output = surface
+            rect.update_texture(self.app)
 
     def loop(self):
         while self.alive:
             self.update()
         if self.close_on_kill:
-            if self.videoclip is not None:
-                self.videoclip.close()
-            self.videoclip = None
+            if self.container is not None:
+                self.container.close()
+            self.container = None
+
+
+class VirtualMusic:
+    def __init__(self, path: pathlib.Path):
+        self.path = path
+        self.cover = ICONS.audio_track
+        if self.isvideo:
+            self.cover = ICONS.loading
+            thread = threading.Thread(
+                target=get_virtual_cover_async, args=(self, self.path, ICONS.error)
+            )
+            thread.start()
+
+    @property
+    def isvideo(self):
+        return self.path.suffix.lower()[
+            1:
+        ] in VIDEO_SUPPORTED and not self.path.stem.endswith("novideo")
+
+
+class VirtualPlaylist:
+    def __init__(self, path):
+        self.path = path
+        self.tracks = []
+        self.folders = []
+        for file in os.listdir(self.path):
+            full = pathlib.Path(os.path.join(self.path, file))
+            if os.path.isdir(full):
+                self.folders.append(full.stem)
+            else:
+                if full.suffix[1:] in FORMATS:
+                    track = VirtualMusic(full)
+                    self.tracks.append(track)
+
+
+class AsyncFFPLAYAudioPlayer:
+    def __init__(self, app: "MILIMP"):
+        self.app = app
+        self.state = app.state
+        self.thread = None
+        self.remake_pipe = True
+        self.alive = True
+        self.process: subprocess.Popen = None
+        self.remake_time = pygame.time.get_ticks()
+
+    def loop(self):
+        while self.alive:
+            if self.remake_pipe or self.process is None:
+                self.make_pipe()
+            if self.process is not None:
+                result = self.process.poll()
+                if result is not None:
+                    self.state.music_auto_finish()
+                    self.alive = False
+                    self.thread = None
+                    break
+                if pygame.time.get_ticks() - self.remake_time >= 50:
+                    try:
+                        line = self.process.stdout.readline().strip()
+                    except Exception:
+                        continue
+                    sep = line.split(" ")
+                    if len(sep) > 0:
+                        first = sep[0]
+                        try:
+                            time = float(first)
+                            if (
+                                (round(time, 2) - round(self.state.get_music_pos(), 2))
+                                > 0.01
+                                and time >= 0
+                                and time < self.state.get_music_pos()
+                                and not math.isnan(time)
+                            ):
+                                self.state.set_music_pos(time)
+                                self.remake_pipe = False
+                        except ValueError:
+                            ...
+        self.close_pipe()
+
+    def make_pipe(self):
+        if self.process is not None:
+            self.close_pipe()
+        if self.state.music_paused:
+            self.remake_pipe = False
+            return
+        command = f'ffplay -nodisp -autoexit -volume {int(self.state.volume * 100)} -ss {self.state.get_music_pos()} "{self.state.music.audiopath}"'
+        if sys.platform == "win32":
+            self.process = subprocess.Popen(
+                command,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+                text=True,
+                stderr=subprocess.STDOUT,
+                stdout=subprocess.PIPE,
+            )
+        else:
+            self.process = subprocess.Popen(
+                command,
+                preexec_fn=os.setsid,
+                text=True,
+                stderr=subprocess.STDOUT,
+                stdout=subprocess.PIPE,
+            )
+        self.remake_pipe = False
+        self.remake_time = pygame.time.get_ticks()
+
+    def close_pipe(self):
+        if self.process.poll() is None:
+            self.process.terminate()
+            self.process.wait()
+        self.process = None
+
+
+class VirtualPlayingMusic:
+    virtual = True
+
+    def __init__(self, path, cover, isvideo, parent_folder):
+        self.audiopath = path
+        self.realpath = path
+        self.realstem = self.realpath.stem
+        self.realname = self.realpath.name
+        self.cover = cover
+        self.isvideo = isvideo
+        self.has_audio = True
+        self.pending = False
+        self.filesize = os.path.getsize(path)
+        self.pos_supported = True
+        self.require_ffplay = False
+        cont = av.open(path)
+        if isvideo:
+            self.require_ffplay = True
+            stream = cont.streams.video[0]
+            if stream.duration is not None:
+                self.duration = stream.duration * stream.time_base
+                self.has_audio = len(cont.streams.audio) > 0
+                self.video_size = (stream.coded_width, stream.coded_height)
+                self.video_fps = stream.average_rate
+            else:
+                with moviepy.VideoFileClip(path) as videofile:
+                    self.duration = videofile.duration
+                    self.has_audio = videofile.audio is not None
+                    self.video_size = videofile.size
+                    self.video_fps = videofile.fps
+        else:
+            stream = cont.streams.audio[0]
+            self.duration = stream.duration * stream.time_base
+            if self.realpath.suffix[1:] not in PYGAME_SUPPORTED:
+                self.require_ffplay = True
+        cont.close()
+        self.playlist = Playlist(str(parent_folder), [])
+        self.playlist.musiclist.append(self)
+        self.playlist.musictable[self.audiopath] = self
+
+    def cover_or(self, default):
+        if self.cover is None:
+            return default
+        return self.cover
+
+    def name_or_alias(self, app):
+        return self.realname
 
 
 class MusicData:
+    virtual = False
+    require_ffplay = False
     audiopath: pathlib.Path
     realpath: pathlib.Path
     cover: pygame.Surface
@@ -484,6 +766,29 @@ class MusicData:
     cover_path: str
     has_audio: bool
     source_exists: bool
+    favorite: bool
+
+    @property
+    def yt_id(self):
+        return self.realstem[-13:][1:-1]
+
+    @property
+    def yt_metadata(self):
+        return (
+            self.playlist.yt_metadata.get("videos", {}).get(self.yt_id, None)
+            if self.playlist.yt_metadata
+            else None
+        )
+
+    @property
+    def alias(self):
+        return self.playlist.aliases.get(self.realpath, None)
+
+    def name_or_alias(self, app: "MILIMP"):
+        alias = self.alias
+        if alias is None:
+            return parse_music_stem(app, self.realstem)
+        return alias
 
     @classmethod
     def load(
@@ -512,8 +817,9 @@ class MusicData:
         self.cover_path = None
         self.has_audio = True
         self.source_exists = True
+        self.favorite = False
 
-        cover_path = f"data/music_covers/{playlist.name}_{self.realstem}.png"
+        cover_path = f"{DATA_PATH}/music_covers/{playlist.name}_{self.realstem}.png"
         if not os.path.exists(realpath):
             self.source_exists = False
             self.audiopath = self.realpath
@@ -522,7 +828,7 @@ class MusicData:
 
         if self.isvideo:
             new_path = pathlib.Path(
-                f"data/mp3_converted/{playlist.name}_{self.realstem}.mp3"
+                f"{DATA_PATH}/mp3_converted/{playlist.name}_{self.realstem}.mp3"
             ).resolve()
 
             if os.path.exists(new_path) and os.path.exists(cover_path):
@@ -535,7 +841,7 @@ class MusicData:
                 videofile = moviepy.VideoFileClip(str(realpath))
                 self.video_size = videofile.size
                 self.video_fps = videofile.fps
-                self.duration = videofile.duration
+                self.duration = float(videofile.duration)
             except Exception:
                 pygame.display.message_box(
                     "Could not load music",
@@ -584,7 +890,7 @@ class MusicData:
             return self
         elif self.isconvertible:
             new_path = pathlib.Path(
-                f"data/mp3_converted/{playlist.name}_{self.realstem}.mp3"
+                f"{DATA_PATH}/mp3_converted/{playlist.name}_{self.realstem}.mp3"
             ).resolve()
 
             if os.path.exists(cover_path):
@@ -621,12 +927,12 @@ class MusicData:
                 self.load_cover_async(cover_path, loading_image, startup=startup)
             if self.converted:
                 self.audiopath = pathlib.Path(
-                    f"data/mp3_converted/{playlist.name}_{self.realstem}.mp3"
+                    f"{DATA_PATH}/mp3_converted/{playlist.name}_{self.realstem}.mp3"
                 ).resolve()
             else:
                 self.audiopath = realpath
             return self
-        
+
     def check_exists(self):
         if self.source_exists and not os.path.exists(self.realpath):
             self.source_exists = False
@@ -685,14 +991,14 @@ class MusicData:
         if not self.has_audio:
             try:
                 videofile = moviepy.VideoFileClip(str(self.realpath), audio=False)
-                self.duration = videofile.duration
+                self.duration = float(videofile.duration)
                 videofile.close()
             except Exception:
                 self.duration = None
             return
         try:
             soundfile = moviepy.AudioFileClip(str(self.audiopath))
-            self.duration = soundfile.duration
+            self.duration = float(soundfile.duration)
             soundfile.close()
         except Exception:
             self.duration = None
@@ -814,20 +1120,52 @@ class PlaylistGroup:
 
 class Playlist:
     def __init__(
-        self, name, filepaths, groups_data=None, loading_image=None, startup=None
+        self,
+        name,
+        filepaths,
+        groups_data=None,
+        yt_link=None,
+        yt_name=None,
+        aliases=None,
+        folder_path=None,
+        favorites=None,
+        loading_image=None,
+        startup=None,
     ):
         self.name = name
         self.cover = None
+        self.yt_link = yt_link
+        self.yt_name = yt_name
+        self.folder_path = folder_path
+        if self.folder_path is not None:
+            self.folder_path = pathlib.Path(self.folder_path)
         if groups_data is None:
             groups_data = []
         self.groups: list[PlaylistGroup] = []
+        if aliases is None:
+            aliases = {}
+        self.aliases = aliases
+        if favorites is None:
+            favorites = []
+        self.favorites = favorites
+        self.yt_metadata = None
+        if self.is_yt:
+            if os.path.exists(f"{DATA_PATH}/yt_playlists"):
+                fname = f"{DATA_PATH}/yt_playlists/{self.name}"
+                if not os.path.exists(fname):
+                    os.mkdir(fname)
+            if os.path.exists(f"{DATA_PATH}/yt_playlists/{self.name}/{self.name}.json"):
+                with open(
+                    f"{DATA_PATH}/yt_playlists/{self.name}/{self.name}.json", "r"
+                ) as pmeta:
+                    self.yt_metadata = json.load(pmeta)
 
-        if os.path.exists(f"data/covers/{self.name}.png"):
+        if os.path.exists(f"{DATA_PATH}/covers/{self.name}.png"):
             if loading_image is not None:
                 self.cover = loading_image
             thread = threading.Thread(
                 target=load_cover_async,
-                args=(f"data/covers/{self.name}.png", self),
+                args=(f"{DATA_PATH}/covers/{self.name}.png", self),
                 daemon=True,
             )
             thread.start()
@@ -836,6 +1174,12 @@ class Playlist:
         self.musictable: dict[pathlib.Path, MusicData] = {}
         for path in filepaths:
             self.load_music(path, loading_image, startup=startup)
+
+        if startup is not None:
+            for music in self.musiclist:
+                if music.realpath in self.favorites:
+                    startup.favorites.append(music)
+                    music.favorite = True
 
         if len(groups_data) > 0 and isinstance(groups_data[0], PlaylistGroup):
             self.groups = groups_data
@@ -854,6 +1198,20 @@ class Playlist:
                         gdata.get("mode", "h"),
                     )
                 )
+
+    @property
+    def is_yt(self):
+        return self.yt_link is not None
+
+    @property
+    def is_folder(self):
+        return self.folder_path is not None
+
+    @property
+    def display_name(self):
+        if self.is_yt:
+            return self.yt_name
+        return self.name
 
     @property
     def realpaths(self):

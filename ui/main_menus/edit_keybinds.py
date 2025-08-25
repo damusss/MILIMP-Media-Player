@@ -27,7 +27,7 @@ class EditKeybindsUI(UIComponent):
             if shadowit.left_just_released:
                 self.back()
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
 
             with self.mili.begin(
@@ -71,7 +71,7 @@ class EditKeybindsUI(UIComponent):
         ):
             self.mili.text_element(
                 "Keybindings",
-                {"size": self.mult(26)},
+                {"size": self.mult_fs(26)},
                 None,
                 mili.CENTER | {"blocking": None},
             )
@@ -111,7 +111,7 @@ class EditKeybindsUI(UIComponent):
             if rdata.data.absolute_rect.colliderect(parent_data.absolute_rect):
                 self.mili.text_element(
                     name.replace("_", " ").title(),
-                    {"size": self.mult(16), "growx": False, "align": "right"},
+                    {"size": self.mult_fs(16), "growx": False, "align": "right"},
                     None,
                     {"fillx": "35", "align": "center", "blocking": None},
                 )
@@ -152,7 +152,7 @@ class EditKeybindsUI(UIComponent):
                             "border_radius": 0,
                         }
                     )
-                    self.mili.text(display_txt, {"size": self.mult(15)})
+                    self.mili.text(display_txt, {"size": self.mult_fs(15)})
 
                     if self.app.can_interact():
                         if it.left_just_released:
@@ -170,7 +170,7 @@ class EditKeybindsUI(UIComponent):
             {"ignore_grid": True, "parent_id": 0, "blocking": None} | mili.CENTER,
         ):
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
 
             with self.mili.begin(
@@ -200,7 +200,7 @@ class EditKeybindsUI(UIComponent):
                 ):
                     self.mili.text_element(
                         "Listening Key",
-                        {"size": self.mult(26)},
+                        {"size": self.mult_fs(26)},
                         None,
                         mili.CENTER | {"blocking": None},
                     )
@@ -238,7 +238,7 @@ class EditKeybindsUI(UIComponent):
                     text,
                     {
                         "color": color,
-                        "size": self.mult(size),
+                        "size": self.mult_fs(size),
                         "wraplen": mili.percentage(75, self.app.split_w),
                         "growx": False,
                         "slow_grow": True,

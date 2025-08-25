@@ -213,11 +213,11 @@ class MiniplayerUI:
         self.mili.id_checkpoint(20)
         if show_controls:
             self.ui_controls()
-        self.mili.id_checkpoint(ID_OFFSET + 60000)
+        self.mili.id_checkpoint(ID_OFFSET + 70000)
 
         if show_controls:
             self.ui_line()
-            self.mili.id_checkpoint(ID_OFFSET + 61000)
+            self.mili.id_checkpoint(ID_OFFSET + 71000)
             self.ui_top_btn(ICONS.minip_back, "left", self.action_back_to_app)
             if self.window is None:
                 return
@@ -258,9 +258,12 @@ class MiniplayerUI:
         cover = self.state.get_music_cover(True)
         if cover is None:
             return
-        it = self.mili.element(None, {"fillx": True, "filly": True, "blocking": None})
-        scaled, cover = self.state.get_scaled_cover(cover, it, False)
-        self.mili.image(cover, {"cache": self.cover_cache, "ready": scaled})
+        it = self.mili.element(None, {"fillx": True, "filly": True})
+        ready = False
+        if self.state.async_videoclip is not None:
+            self.state.async_videoclip.miniplayer_rect.set_rect(it.data.rect)
+            cover, ready = self.state.async_videoclip.miniplayer_rect.get_or(cover)
+        self.mili.image(cover, {"cache": self.cover_cache, "ready": ready})
 
     def ui_controls(self):
         with self.mili.begin(

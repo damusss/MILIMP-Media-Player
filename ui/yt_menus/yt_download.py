@@ -45,7 +45,7 @@ class YTDownloadUI(UIComponent):
                 self.close()
                 return
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
             perc = (
                 40
@@ -75,7 +75,7 @@ class YTDownloadUI(UIComponent):
                 ):
                     self.mili.text_element(
                         "Download Video",
-                        {"size": self.mult(26)},
+                        {"size": self.mult_fs(26)},
                         None,
                         mili.CENTER | {"blocking": None},
                     )
@@ -91,7 +91,7 @@ class YTDownloadUI(UIComponent):
                         self.error if self.error else "Getting formats...",
                         {
                             "color": "red" if self.error else (150,) * 3,
-                            "size": self.mult(17),
+                            "size": self.mult_fs(17),
                             "slow_grow": True,
                             "growx": False,
                             "wraplen": "100",
@@ -138,7 +138,7 @@ class YTDownloadUI(UIComponent):
                         "Select at least one format to download",
                         {
                             "color": (150,) * 3,
-                            "size": self.mult(15),
+                            "size": self.mult_fs(15),
                             "slow_grow": True,
                             "growx": False,
                             "wraplen": "100",
@@ -161,7 +161,7 @@ class YTDownloadUI(UIComponent):
             else "If you select one video track and one audio track you have the option to merge them",
             {
                 "color": "red" if self.error else (150,) * 3,
-                "size": self.mult(14),
+                "size": self.mult_fs(14),
                 "slow_grow": True,
                 "growx": False,
                 "wraplen": "100",
@@ -214,7 +214,7 @@ class YTDownloadUI(UIComponent):
                         }[fmt.type]
                         self.mili.text_element(
                             f"{title} Formats",
-                            {"size": self.mult(18)},
+                            {"size": self.mult_fs(18)},
                             None,
                         )
 
@@ -230,7 +230,7 @@ class YTDownloadUI(UIComponent):
                 if self.show_extra and fmt.extra_data is not None:
                     self.mili.text_element(
                         fmt.extra_data,
-                        {"growx": False, "size": self.mult(12), "color": (160,) * 3},
+                        {"growx": False, "size": self.mult_fs(12), "color": (160,) * 3},
                         None,
                         {"fillx": True, "offset": self.scroll.get_offset()},
                     )
@@ -286,7 +286,7 @@ class YTDownloadUI(UIComponent):
                         if fmt.default:
                             self.mili.text_element(
                                 "DEFAULT",
-                                {"size": self.mult(15)},
+                                {"size": self.mult_fs(15)},
                                 None,
                                 {"blocking": False},
                             )
@@ -316,7 +316,7 @@ class YTDownloadUI(UIComponent):
                         if attrname == "fps":
                             value = f"{value}FPS"
                         self.mili.text_element(
-                            value, {"size": self.mult(15)}, None, {"blocking": False}
+                            value, {"size": self.mult_fs(15)}, None, {"blocking": False}
                         )
 
     def ui_column_info(self):
@@ -350,7 +350,7 @@ class YTDownloadUI(UIComponent):
                 ):
                     self.mili.text_element(
                         attrname,
-                        {"size": self.mult(12), "color": (120,) * 3},
+                        {"size": self.mult_fs(12), "color": (120,) * 3},
                         None,
                         {"blocking": False},
                     )

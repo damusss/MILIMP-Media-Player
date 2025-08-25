@@ -27,7 +27,7 @@ class ChangeCoverUI(UIComponent):
             if shadowit.left_just_released:
                 self.close()
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
 
             with self.mili.begin(
@@ -51,7 +51,7 @@ class ChangeCoverUI(UIComponent):
     def ui_modal_content(self):
         self.mili.text_element(
             "Change Cover",
-            {"size": self.mult(26)},
+            {"size": self.mult_fs(26)},
             None,
             mili.CENTER | {"blocking": None},
         )
@@ -109,7 +109,7 @@ class ChangeCoverUI(UIComponent):
             self.mili.text_element(
                 f"{self.message}",
                 {
-                    "size": self.mult(20),
+                    "size": self.mult_fs(20),
                     "color": ((170,) * 3)
                     if self.message_type == "info"
                     else (200, 40, 40),
@@ -123,7 +123,7 @@ class ChangeCoverUI(UIComponent):
         self.mili.text_element(
             "Hold shift to generate up to 9 cells",
             {
-                "size": self.mult(16),
+                "size": self.mult_fs(16),
                 "color": (150,) * 3,
                 "growx": False,
                 "wraplen": mili.percentage(70, self.app.split_w),
@@ -150,7 +150,7 @@ class ChangeCoverUI(UIComponent):
             self.app.playlist_viewer.playlist.cover = self.selected_image
             pygame.image.save(
                 self.selected_image,
-                f"data/covers/{self.app.playlist_viewer.playlist.name}.png",
+                f"{DATA_PATH}/covers/{self.app.playlist_viewer.playlist.name}.png",
             )
         self.close()
 
@@ -159,6 +159,8 @@ class ChangeCoverUI(UIComponent):
         self.message = "No image selected (file drop supported)"
         self.is_reset = True
         self.selected_image = ICONS.playlist_cover
+        if self.app.playlist_viewer.playlist.is_yt:
+            self.selected_image = ICONS.yt_playlist
 
     def action_generate_cover(self):
         self.message = "No image selected (file drop supported)"

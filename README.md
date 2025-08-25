@@ -1,7 +1,14 @@
 # TODO:
-- use mili entryline. fix what shortcuts are available while the entrylines are running. you figure it out.
-- finish loading backup.
-- Make health check part of the app!
+
+- finish loading backup
+- add search to explorer
+- add global search for playlists and songs
+- drag tracks inside playlists
+- right click for tab menu
+  FAVORITES:
+- rename song
+- forward to another playlist
+- remove song
 
 # MILIMP Media Player
 
@@ -10,47 +17,53 @@ An application using MILI-UI featuring a rich media player.<br>
 
 # Features
 
--   Perks
+- Perks
 
-    -   Tooltips
-    -   Modern, fast, responsive UI (split screen for wide windows)
-    -   30/60 FPS, Power saving, Async loading/processing, state info
-    -   Custom titlebar/borders
-    -   Drop file support
-    -   Universal font integration
-    -   Rich Discord presence
-    -   History
-    -   Keybinds
+  - Tooltips
+  - Modern, fast, responsive UI (split screen for wide windows)
+  - 30/60 FPS, Power saving, Async loading/processing, state info
+  - Custom titlebar/borders
+  - Drop file support
+  - Universal font integration
+  - Rich Discord presence
+  - History
+  - Keybinds
+  - Health Check
 
--   Youtube Music Search
+- YouTube Music Search
 
-    -   Search videos
-    -   Preview video with integrated youtube web embed
-    -   Display thumbnail, title, views, channel name, channel profile picture, duration
-    -   Sort by default, title, views, channel
-    -   Open video in browser, open channel in browser
-    -   Download video, audio or both with any format
-    -   Download max resolution thumbnail
+  - Search videos
+  - Preview video with integrated youtube web embed
+  - Display thumbnail, title, views, channel name, channel profile picture, duration
+  - Sort by default, title, views, channel
+  - Open video in browser, open channel in browser
+  - Download video, audio or both with any format
+  - Download max resolution thumbnail
 
--   Playlists (load from folder, rename, delete, reorder, upload/generate cover, search)
+- Playlists (load from folder, rename, delete, reorder, upload/generate cover, search)
 
-    -   Playlist Groups (collapsable, horizontal/vertical layout)
+  - Playlist Groups (collapsable, horizontal/vertical layout)
 
--   Musics (add, rename, delete, reorder, move to playlist, show in explorer, convert to MP3, change cover, view metadata, move to new location)
+- Musics (add, rename, delete, reorder, move to playlist, show in explorer, convert to MP3, change cover, view metadata, move to new location)
 
-    -   **Audio and Video**: MP4, WEBM, AVI, MKV, MOV, FLV, WMV, M4V, 3GP, MPEG, MPG, OGV, MTS, TS
+  - **Audio and Video**: MP4, WEBM, AVI, MKV, MOV, FLV, WMV, M4V, 3GP, MPEG, MPG, OGV, MTS, TS
 
-    -   **Audio Only**: MP3, WAV, OGG, FLAC, OPUS, WV, MOD, AIFF, AAC, M4A, WMA, ALAC, AMR, AU, SND, MPC, TTA, CAF
+  - **Audio Only**: MP3, WAV, OGG, FLAC, OPUS, WV, MOD, AIFF, AAC, M4A, WMA, ALAC, AMR, AU, SND, MPC, TTA, CAF
 
-    -   **Unsupported Track Positioning**: WAV, OPUS, WV, AIFF
+  - **Unsupported Track Positioning**: WAV, OPUS, WV, AIFF
 
--   Controls
-    -   Pause, Volume/mute, Next/previous/auto-next, Rewind
-    -   Background effects
-    -   Loop (playlist/music), Shuffle
-    -   Miniplayer
-    -   Video player (+ maximized/fullscreen)
-    -   Save Frame
+- Controls
+
+  - Pause, Volume/mute, Next/previous/auto-next, Rewind
+  - Background effects
+  - Loop (playlist/music), Shuffle
+  - Miniplayer
+  - Queue
+  - Video player (+ maximized/fullscreen)
+  - Save Frame
+
+- Explorer
+  Browse your filesystem and play music on the fly without adding them to a playlist. Uses `ffplay` as an audio backend instead of pygame.
 
 The file extension must always match the music format.
 Due to SDL limitations only a subset of the supported formats can be played directly, the rest will have a copy converted to MP3.
@@ -60,12 +73,13 @@ Videoclip multithreading increases the app FPS but will increase video lag for H
 
 # Special Gestures
 
--   Pause a video by clicking the frame. Double click it to fullscreen/minimize the video.
--   Hold the mouse wheel button and scroll to reorder playlists and musics (hold shift to move faster)
--   Click on the currently playing track's cover/(video + ctrl) to jump to the track in the playlist
--   Hover a playlist's cover or the currently playing track's cover/video for a fraction of a second to view it in full screen
--   Middle click the playing track's video cover to set the frame as the music cover in the playlist. Delete the cover file from the data/music_covers folder to revert
--   Hold shift while hovering the currently playing track's slider to view the video frame at that position
+- Pause a video by clicking the frame. Double click with left or right mouse buttons it to fullscreen/minimize the video.
+- While in maximized fullscreen, hover the bottom or top of the app to show the music controls.
+- Hold the mouse wheel button and scroll to reorder playlists and musics (hold shift to move faster). You can also drag the items to do the same.
+- Click on the currently playing track's cover/(video + ctrl) to jump to the track in the playlist
+- Hover a playlist's cover or the currently playing track's cover/video for a fraction of a second to view it in full screen
+- Middle click the playing track's video cover to set the frame as the music cover in the playlist. Delete the cover file from the data/music_covers folder to revert
+- Hold shift while hovering the currently playing track's slider to view the video frame at that position
 
 # Keyboard Shortcuts
 
@@ -74,37 +88,37 @@ The only reserved keys are **ENTER** and the media control buttons.
 The only allowed modifier is **CTRL**.
 Note that the volume buttons do not change the app's volume. It is advised to let them only modify the system's volume.
 
--   **ESCAPE**: Back
--   **ENTER**: Confirm
--   **S**: Toggle settings
--   **F11**: Toggle music maximize
--   **F1**: Toggle clean music controls UI
--   **TAB**: Toggle player extra controls
--   **UP**/**KP 8**: Volume up
--   **DOWN**/**KP 2**: Volume down
--   **SPACE**/**ENTER**/**KP ENTER**/**AUDIO PLAY**: Play/pause music
--   **CTRL** + **LEFT**/**CTRL** + **KP 4**/**AUDIO PREVIOUS**: Previous track
--   **CTRL** + **RIGHT**/**CTRL** + **KP 6**/**AUDIO NEXT**: Next track
--   **LEFT**/**KP 4**: Back 5 seconds
--   **RIGHT**/**KP 6**: Skip 5 seconds
--   **CTRL** + **Q**: Quit
--   **CTRL** + **A**: New playlist/Add music
--   **CTRL** + **S**: Save
--   **CTRL** + **H**: Open history
--   **CTRL** + **K**: Open keybindings
--   **CTRL** + **F**: Toggle playlist search
--   **CTRL** + **BACKSPACE**: Erase input field
--   **CTRL** + **C**: Toggle change cover
--   **CTRL** + **E**: End music
--   **CTRL** + **R**: Rewind music
--   **CTRL** + **D**: Toggle miniplayer
--   **CTRL** + **F11**: Toggle music fullscreen
--   **CTRL** + **L**: Minimize window
--   **CTRL** + **M**: Maximize window
--   **CTRL** + **X**: Refresh YT search
--   **CTRL** + **T**: Toggle videoclip threading
--   **PAGE UP**/**KP 9**: Scroll up
--   **PAGE DOWN**/**KP 3**: Scroll down
+- **ESCAPE**: Back
+- **ENTER**: Confirm
+- **S**: Toggle settings
+- **F11**: Toggle music maximize
+- **TAB**: Toggle player extra controls
+- **UP**/**KP 8**: Volume up
+- **DOWN**/**KP 2**: Volume down
+- **SPACE**/**ENTER**/**KP ENTER**/**AUDIO PLAY**: Play/pause music
+- **CTRL** + **LEFT**/**CTRL** + **KP 4**/**AUDIO PREVIOUS**: Previous track
+- **CTRL** + **RIGHT**/**CTRL** + **KP 6**/**AUDIO NEXT**: Next track
+- **LEFT**/**KP 4**: Back 5 seconds
+- **RIGHT**/**KP 6**: Skip 5 seconds
+- **CTRL** + **Q**: Quit
+- **CTRL** + **+**: New playlist/Add music
+- **CTRL** + **S**: Save
+- **CTRL** + **H**: Open history
+- **CTRL** + **K**: Open keybindings
+- **CTRL** + **W**: Open queue
+- **CTRL** + **F**: Toggle playlist search
+- **CTRL** + **E**: End music
+- **CTRL** + **R**: Rewind music
+- **CTRL** + **D**: Toggle miniplayer
+- **CTRL** + **F11**: Toggle music fullscreen
+- **CTRL** + **L**: Minimize window
+- **CTRL** + **M**: Maximize window
+- **CTRL** + **X**: Refresh YT search
+- **CTRL** + **T**: Toggle videoclip threading
+- **PAGE UP**/**KP 9**: Scroll up
+- **PAGE DOWN**/**KP 3**: Scroll down
+
+Entrylines have common keybindings.
 
 # Building/Running
 
@@ -118,44 +132,49 @@ pip install -r requirements.txt
 py MILIMP.py
 ```
 
-You can use the `health_check.py` script to check for unused files in the data folder. Use the `--remove` argument to delete them automatically. The script is also run when the media player starts.
-
-User data is not stored in `AppData` or equivalent, rather in the `data/` folder where the main file is in.
+User data is not stored in `AppData` or equivalent, rather in the `data/` folder where the main file is in. This will change in the future.
 
 # Hidden Settings
 
 There are 2 settings that can only be accessed in the `data/settings.json` file.
 
--   `"strip_youtube_id"`: Downloaded videos from youtube might have an ID in square brackets at the end of the filename. If this setting is set to `true`, such pattern will be stripped from the display name.
--   `taskbar_height`: When this number is different from 0, when the custom titlebar is enabled, it ensures the taskbar is still visible when the window gets maximized. A common value for it is `30`. Only works if the taskbar is at the bottom. A (default) value of 0 will result in fullscreen maximized.
+- `"strip_youtube_id"`: Downloaded videos from youtube might have an ID in square brackets at the end of the filename. If this setting is set to `true`, such pattern will be stripped from the display name.
+- `taskbar_height`: When this number is different from 0, when the custom titlebar is enabled, it ensures the taskbar is still visible when the window gets maximized. A common value for it is `30`. Only works if the taskbar is at the bottom. A (default) value of 0 will result in fullscreen maximized.
 
 # Dependencies
 
--   `pygame-ce` >= 2.5.2 (music, windowing, input, rendering backend)
--   `mili-ui` >= 1.0.6 (UI backend)
--   `moviepy` >= 2.1.2 (video/audio converter/reader)
--   **[optional]** `pypresence` >= 4.3.0 (Discord presence)
--   **[optional]** `pywebview` >= 5.4 (YouTube embed)
--   **[optional]** `youtube-search-python` >= 1.6.6 (alternative YouTube search method)
+- `pygame-ce` >= 2.5.2 (music, windowing, input, rendering backend)
+- `mili-ui` >= 1.0.6 (UI backend)
+- `moviepy` >= 2.1.2 (video/audio converter/reader)
+- `av` >= 15.0.0 (video frame reader)
+- **[optional]** `pypresence` >= 4.3.0 (Discord presence)
+- **[optional]** `pywebview` >= 5.4 (YouTube embed)
+- **[optional]** `youtube-search-python` >= 1.6.6 (alternative YouTube search method)
 
 ## Optional Foreign dependencies
 
 ### `yt-dlp` binary (latest)
+
 - Download from https://github.com/yt-dlp/yt-dlp/releases
 - Either add it to PATH or put it in the same directory as the main file
 - Needed for YouTube searches and downloads
 
 ### `ffmpeg` binary (>=7.0/latest)
+
 - Download from https://www.ffmpeg.org/download.html
 - Either add the bin/ to path or put the binary in the same directory as the main file
 - Needed to merge downloaded audio and video tracks from youtube
+
+### `ffplay` binary (latest, comes with ffmpeg)
+
+- Needed to play audio when using the explorer only.
 
 # Codebase Notice
 
 The codebase currently follows the following conventions (they are not hard rules):
 
--   `__init__` and `init(_*)` methods are called once.
--   Every method starting with `ui_` is only responsible for organizing and rendering the UI components. The main `ui` function of each UI component is split in several subfunctions for ease of readibility.
--   Every method starting with `action_` is almost certainly a callback that is _only_ called following a user UI interaction, and never called from anywhere else.
--   Methods starting with `get_`, despite the name, are usually called within the same class to change internal states without returning anything.
--   Every normal method is used internally by the class and usually by external classes to manage the states.
+- `__init__` and `init(_*)` methods are called once.
+- Every method starting with `ui_` is only responsible for organizing and rendering the UI components. The main `ui` function of each UI component is split in several subfunctions for ease of readibility.
+- Every method starting with `action_` is almost certainly a callback that is _only_ called following a user UI interaction, and never called from anywhere else.
+- Methods starting with `get_`, despite the name, are usually called within the same class to change internal states without returning anything.
+- Every normal method is used internally by the class and usually by external classes to manage the states.

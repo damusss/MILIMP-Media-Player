@@ -25,7 +25,7 @@ class BackupSaveUI(UIComponent):
             if shadowit.left_just_released:
                 self.back()
             self.mili.image(
-                SURF, {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.cache}
+                SURF, {"fill": True, "fill_color": MENU_BG_COL, "cache": self.cache}
             )
             perc = 50 if self.app.split_w > 1500 else 90
             with self.mili.begin(
@@ -44,7 +44,7 @@ class BackupSaveUI(UIComponent):
 
                 self.mili.text_element(
                     "Create Backup",
-                    {"size": self.mult(26)},
+                    {"size": self.mult_fs(26)},
                     None,
                     mili.CENTER | {"blocking": None},
                 )
@@ -52,7 +52,7 @@ class BackupSaveUI(UIComponent):
                     "Select the components to add to a ZIP backup. When loading the backup, only those parts will be updated. When you are done, choose the backup location. Backing up might take some seconds. The ZIP's size will be lower than the size of the contents (up to ~70% less). A normal backup usually consists of playlists, settings and history.",
                     {
                         "color": (150,) * 3,
-                        "size": self.mult(15),
+                        "size": self.mult_fs(15),
                         "slow_grow": True,
                         "growx": False,
                         "wraplen": mili.percentage(perc - 5, self.app.split_w),
@@ -66,7 +66,7 @@ class BackupSaveUI(UIComponent):
                     f"Contents size: {self.size_str}",
                     {
                         "color": (255,) * 3,
-                        "size": self.mult(22),
+                        "size": self.mult_fs(22),
                         "slow_grow": True,
                         "growx": mili.percentage(perc - 5, self.app.split_w),
                         "wraplen": "100",
@@ -98,7 +98,7 @@ class BackupSaveUI(UIComponent):
                 "anchor": "max_spacing",
             },
         ):
-            self.mili.text_element(name, {"size": self.mult(20)})
+            self.mili.text_element(name, {"size": self.mult_fs(20)})
             self.ui_image_btn(
                 ICONS.checkbox_on if value else ICONS.checkbox_off,
                 partial(self.action_category, name, value),
@@ -123,23 +123,28 @@ class BackupSaveUI(UIComponent):
             if not value:
                 continue
             if category == "settings":
-                size += get("data/gpu.json") + get("data/settings.json")
+                size += get(f"{DATA_PATH}/gpu.json") + get(f"{DATA_PATH}/settings.json")
             elif category == "playlists":
-                size += get("data/playlists.json")
+                size += get(f"{DATA_PATH}/playlists.json")
             elif category == "history":
-                size += get("data/history.json") + get("data/search_results.json")
+                size += get(f"{DATA_PATH}/history.json") + get(f"{DATA_PATH}/search_results.json")
             elif category == "playlist covers":
-                for file in os.listdir("data/covers"):
-                    size += get(f"data/covers/{file}")
+                for file in os.listdir(f"{DATA_PATH}/covers"):
+                    size += get(f"{DATA_PATH}/covers/{file}")
             elif category == "yt downloads":
-                for file in os.listdir("data/yt_downloads"):
-                    size += get(f"data/yt_downloads/{file}")
+                for folder, subfolders, files in os.walk(f"{DATA_PATH}/yt_downloads"):
+                    for file in files:
+                        size += get(f"{folder}/{file}")
+            elif category == "yt playlists":
+                for folder, subfolders, files in os.walk(f"{DATA_PATH}/yt_playlists"):
+                    for file in files:
+                        size += get(f"{folder}/{file}")
             elif category == "music covers":
-                for file in os.listdir("data/music_covers"):
-                    size += get(f"data/music_covers/{file}")
+                for file in os.listdir(f"{DATA_PATH}/music_covers"):
+                    size += get(f"{DATA_PATH}/music_covers/{file}")
             elif category == "mp3 converted":
-                for file in os.listdir("data/mp3_converted"):
-                    size += get(f"data/mp3_converted/{file}")
+                for file in os.listdir(f"{DATA_PATH}/mp3_converted"):
+                    size += get(f"{DATA_PATH}/mp3_converted/{file}")
         if size < 1024:
             self.size_str = f"{size} B"
         units = ["B", "KB", "MB", "GB", "TB", "PB", "EB"]
@@ -190,6 +195,7 @@ class BackupSaveUI(UIComponent):
                 "Music Covers",
                 "MP3 Converted",
                 "YT Downloads",
+                "YT Playlists",
             ],
             False,
         )

@@ -10,7 +10,8 @@ from ui.yt_menus.yt_playlist import YTPlaylistUI
 from ui.common.data import (
     YTVideoResult,
     AsyncYTEmbed,
-    MenuButton
+    MenuButton,
+    Entryline,
 )
 from ui.common.yt_actions import (
     search_videos_ytdlp_async,
@@ -19,7 +20,6 @@ from ui.common.yt_actions import (
     download_channel_async,
     save_thumbnail_async,
 )
-from ui.common.entryline import UIEntryline
 
 try:
     import webview
@@ -46,8 +46,9 @@ class YTSearchUI(UIComponent):
         )
         self.sbar_size = self.scrollbar.style["short_size"]
         self.modal_state = "none"
-        self.search_entryline = UIEntryline(
-            "Enter video query (video and playlist links are allowed)...", False
+        self.search_entryline = Entryline(
+            self.app, "Enter video query (video and playlist links are allowed)...", False,CONTROLS_CV[0] + 5,
+                CONTROLS_CV[1]
         )
         self.video_results: list[YTVideoResult] = []
         self.sort_method = "default"
@@ -127,7 +128,6 @@ class YTSearchUI(UIComponent):
     def ui(self):
         if self.modal_state == "none" and self.app.modal_state == "none":
             handle_arrow_scroll(self.app, self.scroll, self.scrollbar)
-        self.search_entryline.update(self.app)
 
         self.ui_title_area()
         self.ui_container()
@@ -144,7 +144,7 @@ class YTSearchUI(UIComponent):
         self.mili.text_element(
             "YT Music Search",
             {
-                "size": self.mult(32),
+                "size": self.mult_fs(32),
                 "align": "left",
             },
             None,
@@ -175,12 +175,8 @@ class YTSearchUI(UIComponent):
         ):
             size = self.mult(30)
             self.search_entryline.ui(
-                self.mili,
                 (0, 0, 0, size),
                 {"fillx": True},
-                self.mult,
-                CONTROLS_CV[0] + 5,
-                CONTROLS_CV[1],
             )
             for image, tooltip, action in [
                 (
@@ -264,7 +260,7 @@ class YTSearchUI(UIComponent):
             self.mili.text_element(
                 f"{prefix}: {txt}",
                 {
-                    "size": self.mult(15),
+                    "size": self.mult_fs(15),
                     "align": "left",
                     "growy": False,
                     "growx": False,
@@ -347,7 +343,7 @@ class YTSearchUI(UIComponent):
                         "align": "center",
                         "growx": False,
                         "growy": False,
-                        "size": self.mult(15),
+                        "size": self.mult_fs(15),
                     },
                 )
                 if dm.just_selected:
@@ -417,10 +413,9 @@ class YTSearchUI(UIComponent):
                 "axis": "x",
             },
         ):
-            self.mili.rect({"color": "yellow"})
             self.mili.text_element(
                 'The query was interpreted as the link to a <color fg="red">Playlist.</color>',
-                {"size": self.mult(20), "align": "left", "rich": True, "cache": "auto"},
+                {"size": self.mult_fs(20), "align": "left", "rich": True, "cache": "auto"},
                 None,
             )
             with self.mili.begin(None, mili.RESIZE | mili.X | mili.PADLESS) as btn:
@@ -433,7 +428,7 @@ class YTSearchUI(UIComponent):
                 self.mili.text_element(
                     "Download All Videos",
                     {
-                        "size": self.mult(20),
+                        "size": self.mult_fs(20),
                         "underline": btn.hovered,
                         "color": "red",
                     },
@@ -461,7 +456,7 @@ class YTSearchUI(UIComponent):
                 string,
                 {
                     "color": color,
-                    "size": self.mult(20),
+                    "size": self.mult_fs(20),
                     "growx": False,
                     "growy": True,
                     "slow_grow": True,
@@ -480,7 +475,7 @@ class YTSearchUI(UIComponent):
             txt,
             {
                 "color": (150,) * 3,
-                "size": self.mult(20),
+                "size": self.mult_fs(20),
                 "growx": False,
                 "growy": True,
                 "slow_grow": True,
@@ -557,7 +552,7 @@ class YTSearchUI(UIComponent):
                     self.mili.text_element(
                         video.title if video.title else "<No Title>",
                         {
-                            "size": self.mult(19 if self.app.split_w > 900 else 16),
+                            "size": self.mult_fs(19 if self.app.split_w > 900 else 16),
                             "growx": False,
                             "growy": True,
                             "slow_grow": True,
@@ -597,7 +592,7 @@ class YTSearchUI(UIComponent):
                 self.mili.element((0, 0, 0, VH), {"blocking": False})
 
     def ui_video_duration(self, video: YTVideoResult, isize):
-        style = {"size": self.mult(16), "padx": 3}
+        style = {"size": self.mult_fs(16), "padx": 3}
         try:
             duration = float(video.duration)
             txt = format_music_time(duration)
@@ -627,7 +622,7 @@ class YTSearchUI(UIComponent):
                 views,
                 {
                     "color": (160,) * 3,
-                    "size": self.mult(18 if self.app.split_w > 900 else 16),
+                    "size": self.mult_fs(18 if self.app.split_w > 900 else 16),
                 },
                 None,
                 {"blocking": False},
@@ -662,7 +657,7 @@ class YTSearchUI(UIComponent):
                 video.channel if video.channel else "<Unknown Channel>",
                 {
                     "color": (cond(self.app, hit, 200, 255, 180),) * 3,
-                    "size": self.mult(17 if self.app.split_w > 900 else 15),
+                    "size": self.mult_fs(17 if self.app.split_w > 900 else 15),
                 },
                 None,
                 {"align": "center", "blocking": False},
@@ -710,16 +705,7 @@ class YTSearchUI(UIComponent):
             n = int(n)
         else:
             return None
-        suffix = ""
-        if n >= 1_000_000_000:
-            n = round(n / 1_000_000_000, 3)
-            suffix = "B"
-        elif n >= 1_000_000:
-            n = round(n / 1_000_000, 3)
-            suffix = "M"
-        elif n >= 1_000:
-            n = round(n / 1000, 3)
-            suffix = "K"
+        n, suffix = format_views(n)
         return f"{n:,}{suffix}{' Views' if self.app.split_w > 600 else ''}"
 
     def open_video_menu(self, video):

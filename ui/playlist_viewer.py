@@ -5,11 +5,11 @@ import pathlib
 import platform
 import threading
 import subprocess
+import webbrowser
 from ui.common import *
 import moviepy
 import tkinter.filedialog as filedialog
 from ui.playlist_menus.playlist_add import PlaylistAddUI
-from ui.common.entryline import UIEntryline
 from ui.playlist_menus.move_music import MoveMusicUI
 from ui.playlist_menus.add_to_group import AddToGroupUI
 from ui.playlist_menus.change_cover import ChangeCoverUI
@@ -22,8 +22,10 @@ from ui.common.data import (
     PlaylistGroup,
     NotCached,
     MenuButton,
+    Entryline,
     convert_music_async,
 )
+from ui.common.yt_actions import YTPlaylistSyncAsync
 
 
 class PlaylistViewerUI(UIComponent):
@@ -33,11 +35,22 @@ class PlaylistViewerUI(UIComponent):
         self.anim_cover = animation(-5)
         self.anim_back = animation(-3)
         self.anim_search = animation(-5)
-        self.menu_anims = [animation(-4) for i in range(11)]
+        self.anim_details = animation(-5)
+        self.menu_anims = [animation(-4) for i in range(13)]
         self.modal_state = "none"
         self.middle_selected: MusicData | PlaylistGroup = None
         self.search_active = False
-        self.search_entryline = UIEntryline("Enter search...", False)
+        self.search_entryline = Entryline(
+            self.app, "Enter search...", False, CONTROLS_CV[0] + 5, CONTROLS_CV[1]
+        )
+        self.link_entryline = Entryline(
+            self.app,
+            "Enter playlist link...",
+            False,
+            CONTROLS_CV[0] + 5,
+            CONTROLS_CV[1],
+            (150,) * 3,
+        )
         self.big_cover = False
         self.big_cover_time = 0
 
@@ -57,6 +70,12 @@ class PlaylistViewerUI(UIComponent):
         self.cover_cache = mili.ImageCache()
         self.bigcover_cache = mili.ImageCache()
         self.black_cache = mili.ImageCache()
+        self.yt_syncer = YTPlaylistSyncAsync(self, None)
+        self.yt_need_refresh = False
+        self.yt_show_details = True
+        self.next_cursor_data = None
+        self.deferred_scroll = None
+        self.deferred_scroll_time = pygame.time.get_ticks()
 
     def sort_searched_songs(self):
         scores = {}
@@ -87,6 +106,11 @@ class PlaylistViewerUI(UIComponent):
     def enter(self, playlist):
         self.playlist = playlist
         self.app.change_state("playlist")
+        if self.playlist.is_folder:
+            self.action_refresh_folder()
+        if self.playlist.is_yt:
+            self.link_entryline.set_text(self.playlist.yt_link)
+            self.yt_sync_refresh_files(self.playlist)
 
     def ui_top_buttons(self):
         if self.app.modal_state != "none" or self.modal_state != "none":
@@ -114,11 +138,17 @@ class PlaylistViewerUI(UIComponent):
 
     def ui(self):
         self.ui_check()
+        if self.next_cursor_data is not None:
+            self.app.cursor_hover = True
+            self.app.tick_tooltip(self.next_cursor_data)
+            self.next_cursor_data = None
+
+        if self.yt_need_refresh:
+            self.yt_sync_refresh_files()
+
         if self.modal_state == "none" and self.app.modal_state == "none":
             handle_arrow_scroll(self.app, self.scroll, self.scrollbar)
 
-        if self.search_active:
-            self.search_entryline.update(self.app)
         if self.playlist is None:
             self.back()
         big_cover = self.ui_title()
@@ -127,6 +157,22 @@ class PlaylistViewerUI(UIComponent):
             self.big_cover_time = pygame.time.get_ticks()
         if not big_cover:
             self.big_cover = False
+
+        if self.yt_syncer.alive:
+            extra = "..."
+            if (
+                self.yt_syncer.downloading
+                and self.yt_syncer.downloading_video is not None
+            ):
+                extra = f": Downloading '{self.yt_syncer.downloading_video['title']}'"
+            self.mili.text_element(
+                f"Syncing '{self.yt_syncer.playlist.yt_name}'{extra}"
+                if self.yt_syncer.playlist.yt_name != self.playlist.yt_name
+                else f"Syncing{extra}",
+                {"size": self.mult_fs(19), "color": (230,) * 3, "padx": self.mult(10)},
+                None,
+                {"align": "first", "blocking": None},
+            )
         self.ui_container()
 
         if self.modal_state == "none" and self.app.modal_state == "none":
@@ -151,6 +197,16 @@ class PlaylistViewerUI(UIComponent):
                 3,
                 tooltip="Disable search" if self.search_active else "Enable search",
             )
+            if self.playlist.is_yt:
+                self.ui_overlay_btn(
+                    self.anim_details,
+                    self.action_yt_show_details,
+                    ICONS.shown if self.yt_show_details else ICONS.hidden,
+                    4,
+                    "Hide playlist details"
+                    if self.yt_show_details
+                    else "Show playlist details",
+                )
         elif self.modal_state == "add":
             self.playlist_add.ui()
         elif self.modal_state == "move":
@@ -172,7 +228,20 @@ class PlaylistViewerUI(UIComponent):
         ):
             self.ui_big_cover()
 
+        if (
+            self.deferred_scroll is not None
+            and pygame.time.get_ticks() - self.deferred_scroll_time >= 100
+        ):
+            type_, amount = self.deferred_scroll
+            self.deferred_scroll = None
+            if type_ == "increase":
+                self.scroll.scroll(0, amount)
+            else:
+                self.scroll.set_scroll(0, amount)
+
     def ui_container(self):
+        if self.state.async_videoclip is not None:
+            self.state.async_videoclip.preview_rect.active = False
         with self.mili.begin(
             (0, 0, self.app.split_w, 0),
             {"filly": True},
@@ -226,7 +295,7 @@ class PlaylistViewerUI(UIComponent):
                     f"{len(self.playlist.musiclist)} track{
                         's' if len(self.playlist.musiclist) > 1 else ''
                     }",
-                    {"size": self.mult(19), "color": (170,) * 3},
+                    {"size": self.mult_fs(19), "color": (170,) * 3},
                     None,
                     {"offset": self.scroll.get_offset(), "blocking": None},
                 )
@@ -236,7 +305,7 @@ class PlaylistViewerUI(UIComponent):
                     "No track matches your search"
                     if self.search_active
                     else "No tracks",
-                    {"size": self.mult(20), "color": (200,) * 3},
+                    {"size": self.mult_fs(20), "color": (200,) * 3},
                     None,
                     {"align": "center", "blocking": None},
                 )
@@ -287,7 +356,7 @@ class PlaylistViewerUI(UIComponent):
             self.mili.text_element(
                 f"{group.name}{' (empty)' if empty else ''}",
                 {
-                    "size": self.mult(18.5),
+                    "size": self.mult_fs(18.5),
                     "growx": False,
                     "growy": True,
                     "slow_grow": True,
@@ -381,9 +450,9 @@ class PlaylistViewerUI(UIComponent):
 
     def ui_pending(self, music: MusicData):
         self.mili.text_element(
-            f"'{parse_music_stem(self.app, music.realstem)}' is being converted...",
+            f"'{music.name_or_alias(self.app)}' is being converted...",
             {
-                "size": self.mult(16),
+                "size": self.mult_fs(16),
                 "color": (170,) * 3,
                 "growx": False,
                 "slow_grow": True,
@@ -447,15 +516,156 @@ class PlaylistViewerUI(UIComponent):
                     self.ui_title_txt(coversize)
             else:
                 self.ui_title_txt(coversize)
+            if self.playlist.is_yt and self.yt_show_details:
+                self.ui_yt_link()
+                if self.search_active:
+                    self.ui_line("50")
+            if self.playlist.is_folder:
+                self.ui_folder_path()
+                if self.search_active:
+                    self.ui_line("50")
             if self.search_active:
                 self.ui_search()
+        self.ui_line("49.5")
+        return ret
+
+    def ui_line(self, perc):
         self.mili.line_element(
-            [("-49.5", 0), ("49.5", 0)],
+            [(f"-{perc}", 0), (f"{perc}", 0)],
             {"size": 1, "color": (100,) * 3},
             (0, 0, 0, self.mult(7)),
             {"fillx": True, "blocking": None},
         )
-        return ret
+
+    def ui_yt_link(self):
+        with self.mili.begin(
+            (0, 0, self.app.split_w - self.mult(20), 0),
+            {"resizey": True, "blocking": None} | mili.PADLESS | mili.X,
+        ):
+            size = self.mult(30)
+            self.link_entryline.ui(
+                (0, 0, 0, size),
+                {"fillx": True},
+            )
+            self.ui_yt_btn(
+                size,
+                ICONS.minip,
+                self.action_yt_open_link,
+                "Open the playlist on YouTube",
+            )
+            self.ui_yt_btn(
+                size,
+                ICONS.close if self.yt_syncer.alive else ICONS.refresh,
+                self.action_yt_stop_sync
+                if self.yt_syncer.alive
+                else self.action_yt_sync,
+                "Stop syncing playlist" if self.yt_syncer.alive else "Sync playlist",
+            )
+        meta = self.playlist.yt_metadata
+        if meta is None:
+            return
+        with self.mili.begin(
+            (0, 0, self.app.split_w - self.mult(20), 0),
+            {"resizey": True, "blocking": None} | mili.PADLESS | mili.X,
+        ):
+            if meta["channel_name"] is not None:
+                with self.mili.element(None) as cit:
+                    u, nu = "", ""
+                    if cit.hovered:
+                        u, nu = "<u>", "</u>"
+                    self.mili.text(
+                        f'Channel: <color fg="red">{u}{meta["channel_name"]}{nu}</color>',
+                        {"size": self.mult_fs(19), "color": (180,) * 3, "rich": True},
+                    )
+                    if self.app.can_interact():
+                        if cit.hovered:
+                            self.app.cursor_hover = True
+                            self.app.tick_tooltip(f"{meta['channel_url']}")
+                        if cit.left_clicked:
+                            webbrowser.open(str(meta["channel_url"]))
+            infos = []
+            if meta["count"] is not None:
+                infos.append(
+                    f'Tracks: <color fg="white">{len(self.playlist.musiclist)}/{meta["count"]}</color>'
+                )
+            if meta["sync_date"] is not None:
+                infos.append(
+                    f'Last Synced: <color fg="white">{meta["sync_date"]}</color>'
+                )
+            if len(infos) > 0:
+                text = " ".join(infos)
+                self.mili.text_element(
+                    text,
+                    {
+                        "size": self.mult_fs(19),
+                        "growx": False,
+                        "rich": True,
+                        "align": "left",
+                        "font_align": "left",
+                        "color": (150,) * 3,
+                    },
+                    None,
+                    {"fillx": True},
+                )
+
+    def ui_yt_btn(self, size, icon, action, tooltip):
+        if it := self.mili.element((0, 0, size, size)):
+            self.mili.rect(
+                {
+                    "color": (cond(self.app, it, *OVERLAY_CV),) * 3,
+                    "border_radius": 0,
+                }
+            )
+            self.mili.image(
+                icon,
+                {"cache": get_img_cache()},
+            )
+            if self.app.can_interact():
+                if it.left_just_released:
+                    action()
+                if it.hovered or it.unhover_pressed:
+                    self.app.cursor_hover = True
+                if it.hovered:
+                    self.app.tick_tooltip(tooltip)
+
+    def ui_folder_path(self):
+        with self.mili.begin(
+            (0, 0, self.app.split_w - self.mult(20), 0),
+            {"resizey": True, "blocking": None, "default_align": "center"}
+            | mili.PADLESS
+            | mili.X,
+        ) as parent:
+            size = self.mult(30)
+            self.mili.text_element(
+                self.playlist.folder_path,
+                {
+                    "size": self.mult_fs(18),
+                    "color": (180,) * 3,
+                    "slow_grow": True,
+                    "wraplen": parent.data.rect.w - self.mult(30) * 2,
+                    "growx": False,
+                },
+                None,
+                {"fillx": True},
+            )
+            if it := self.mili.element((0, 0, size, size)):
+                self.mili.rect(
+                    {
+                        "color": (cond(self.app, it, *OVERLAY_CV),) * 3,
+                        "border_radius": 0,
+                    }
+                )
+                self.mili.image(
+                    ICONS.refresh,
+                    {"cache": get_img_cache()},
+                )
+                if self.app.can_interact():
+                    if it.left_just_released:
+                        self.action_refresh_folder()
+                    if it.hovered or it.unhover_pressed:
+                        self.app.cursor_hover = True
+                    if it.hovered:
+                        self.app.tick_tooltip("Refresh folder")
 
     def ui_search(self):
         with self.mili.begin(
@@ -464,12 +674,8 @@ class PlaylistViewerUI(UIComponent):
         ):
             size = self.mult(30)
             self.search_entryline.ui(
-                self.mili,
                 (0, 0, 0, size),
                 {"fillx": True},
-                self.mult,
-                CONTROLS_CV[0] + 5,
-                CONTROLS_CV[1],
             )
             if it := self.mili.element((0, 0, size, size)):
                 self.mili.rect(
@@ -491,7 +697,7 @@ class PlaylistViewerUI(UIComponent):
     def ui_big_cover(self):
         self.mili.image_element(
             SURF,
-            {"fill": True, "fill_color": (0, 0, 0, 200), "cache": self.black_cache},
+            {"fill": True, "fill_color": MENU_BG_COL, "cache": self.black_cache},
             ((0, 0), (self.app.split_w, self.app.window.size[1])),
             {"ignore_grid": True, "parent_id": 0, "z": 99999, "blocking": False},
         )
@@ -514,12 +720,14 @@ class PlaylistViewerUI(UIComponent):
         )
 
     def ui_title_txt(self, coversize):
-        w = self.mili.text_size(self.playlist.name, {"size": self.mult(32)}).x
+        w = self.mili.text_size(
+            self.playlist.display_name, {"size": self.mult_fs(32)}
+        ).x
         if w >= self.app.split_w / 1.08 - coversize:
             self.mili.text_element(
-                self.playlist.name,
+                self.playlist.display_name,
                 {
-                    "size": self.mult(32),
+                    "size": self.mult_fs(32),
                     "slow_grow": True,
                     "wraplen": self.app.split_w / 1.08 - coversize,
                     "align": "left",
@@ -529,9 +737,9 @@ class PlaylistViewerUI(UIComponent):
             )
         else:
             self.mili.text_element(
-                self.playlist.name,
+                self.playlist.display_name,
                 {
-                    "size": self.mult(32),
+                    "size": self.mult_fs(32),
                     "align": "left",
                 },
                 None,
@@ -559,40 +767,34 @@ class PlaylistViewerUI(UIComponent):
                             self.ui_music_bg(mit, music)
                         else:
                             self.mili.rect({"color": (100, 0, 0), "border_radius": 0})
-                        is_current = False
                         if not music.loaded_cover and music.cover_path is not None:
                             music.load_cover_async(music.cover_path, ICONS.loading)
                         cover = music.cover_or(ICONS.music_cover)
-                        if (
-                            music is self.state.music
-                            and self.state.music_videoclip_cover is not None
-                            and self.app.focused
-                        ):
-                            cover = self.state.music_videoclip_cover
-                            is_current = True
                         if cover is not None:
-                            scaled = False
-                            if (
-                                is_current
-                                and (av := self.state.async_videoclip) is not None
-                            ):
-                                if mit.data.rect.size in av.scaled_output:
-                                    cover = av.scaled_output[mit.data.rect.size]
-                                    scaled = True
+                            ready = False
                             if not music.source_exists:
                                 cover = ICONS.error
+                            elif (
+                                music is self.state.music
+                                and self.state.async_videoclip is not None
+                            ):
+                                self.state.async_videoclip.preview_rect.set_rect(
+                                    mit.data.rect
+                                )
+                                self.state.async_videoclip.preview_rect.active = True
+                                cover, ready = (
+                                    self.state.async_videoclip.preview_rect.get_or(
+                                        cover
+                                    )
+                                )
                             self.mili.image(
                                 cover,
                                 {
                                     "cache": get_img_cache(),
                                     "pad": self.mult(3),
-                                    "ready": scaled,
+                                    "ready": ready,
                                 },
                             )
-                            if is_current:
-                                self.app.music_controls.videoclip_rects.append(
-                                    (self.mult(3), mit.data.rect)
-                                )
                         if music is self.state.music:
                             self.mili.image(
                                 ICONS.playbars,
@@ -603,13 +805,11 @@ class PlaylistViewerUI(UIComponent):
                             )
                         self.ui_music_interaction(music, mit)
                         if self.app.can_interact() and mit.hovered:
-                            self.app.tick_tooltip(
-                                f"{parse_music_stem(self.app, music.realstem)}"
-                            )
+                            self.app.tick_tooltip(f"{music.name_or_alias(self.app)}")
 
     def ui_music(self, music: MusicData, offscreen=False, i=-1):
         if offscreen:
-            self.mili.element((0, 0, 0, self.mult(80)), {"blocking": False})
+            self.mili.element((0, 0, 0, self.mult(ITEM_H)), {"blocking": False})
             return offscreen
         with self.mili.begin(
             None,
@@ -623,7 +823,7 @@ class PlaylistViewerUI(UIComponent):
                 "axis": "x",
                 "align": "center",
                 "anchor": "first",
-                "size_clamp": {"min": (None, self.mult(80))},
+                "size_clamp": {"min": (None, self.mult(ITEM_H))},
             },
         ) as cont:
             if cont.data.absolute_rect.colliderect(((0, 0), self.app.split_size)):
@@ -647,62 +847,101 @@ class PlaylistViewerUI(UIComponent):
                 if not music.loaded_cover and music.cover_path is not None:
                     music.load_cover_async(music.cover_path, ICONS.loading)
                 cover = music.cover_or(ICONS.music_cover)
-                is_current = False
-                if (
-                    music is self.state.music
-                    and self.state.music_videoclip_cover is not None
-                    and self.app.focused
-                    and self.state.music
-                ):
-                    cover = self.state.music_videoclip_cover
-                    is_current = True
                 if cover is not None:
-                    imagesize = self.mult(70)
+                    imagesize = self.mult(ITEM_H - 10)
                     cel = self.mili.element(
                         (0, 0, imagesize, imagesize),
-                        {"align": "center", "blocking": False},
+                        {"align": "center", "blocking": False, "clip_draw": False},
                     )
-                    scaled = False
-                    if is_current:
-                        self.app.music_controls.videoclip_rects.append(
-                            (0, cel.data.rect)
-                        )
-
-                        if (av := self.state.async_videoclip) is not None:
-                            if cel.data.rect.size in av.scaled_output:
-                                cover = av.scaled_output[cel.data.rect.size]
-                                scaled = True
+                    ready = False
                     if not music.source_exists:
                         cover = ICONS.error
+                    elif (
+                        music is self.state.music
+                        and self.state.async_videoclip is not None
+                    ):
+                        self.state.async_videoclip.preview_rect.set_rect(cel.data.rect)
+                        self.state.async_videoclip.preview_rect.active = True
+                        cover, ready = self.state.async_videoclip.preview_rect.get_or(
+                            cover
+                        )
                     self.mili.image(
                         cover,
-                        {"cache": get_img_cache(), "ready": scaled},
+                        {"cache": get_img_cache(), "ready": ready},
                     )
                 self.mili.text_element(
-                    parse_music_stem(self.app, music.realstem),
+                    music.name_or_alias(self.app),
                     {
-                        "size": self.mult(18),
+                        "size": self.mult_fs(18),
                         "growx": False,
                         "growy": True,
                         "slow_grow": True,
                         "wraplen": "100",
                         "font_align": pygame.FONT_LEFT,
                         "align": "topleft",
+                        "color": "gold" if music.favorite else "white",
                     },
                     (
                         0,
                         0,
                         self.app.split_w / 1.1 - imagesize - padsize,
-                        self.mult(80) / 1.1,
+                        self.mult(ITEM_H) / 1.1,
                     ),
                     {"align": "first", "blocking": False},
                 )
                 self.ui_music_interaction(music, cont, i)
+                if self.playlist.is_yt and self.yt_show_details and cont.absolute_hover:
+                    self.ui_yt_music(music, cont)
+                elif self.playlist.is_yt and self.yt_show_details:
+                    with self.mili.begin((0, 0, -3, 0)):
+                        for i in range(1):
+                            self.mili.element(None)
             else:
-                self.mili.element((0, 0, 0, self.mult(70)), {"blocking": False})
+                self.mili.element(
+                    (0, 0, 0, self.mult(ITEM_H - 10)), {"blocking": False}
+                )
                 if cont.data.absolute_rect.top > self.app.window.size[1] * 1.2:
                     offscreen = True
         return offscreen
+
+    def ui_yt_music(self, music: MusicData, cont: mili.Interaction):
+        if music.yt_metadata is None:
+            return
+        height = cont.data.rect.h / 3
+        with self.mili.begin(
+            (1, cont.data.rect.h - height, cont.data.rect.w - 2, height),
+            {
+                "ignore_grid": True,
+                "axis": "x",
+                "blocking": False,
+                "default_align": "center",
+            },
+        ):
+            self.mili.transparet_rect(
+                {"color": (MUSIC_CV[1] + 10,) * 3, "border_radius": 0, "alpha": 200}
+            )
+            tsize = self.mult_fs(15)
+            with self.mili.element(None) as it:
+                url = f"{music.yt_metadata['url']}&list={self.playlist.name}"
+                try:
+                    views, suffix = format_views(int(music.yt_metadata["views"]))
+                except Exception:
+                    views, suffix = music.yt_metadata["views"], ""
+                self.mili.text(
+                    f'<a href="copy${url}">Copy Link</a> | <a href="open${url}">Watch on YouTube</a> | Channel: <a href="channel${music.yt_metadata["channel_url"]}">{music.yt_metadata["channel_name"]}</a> | Views: {views}{suffix}',
+                    {
+                        "size": tsize,
+                        "rich": True,
+                        "rich_actions": {
+                            "link_click": self.action_yt_link_click,
+                            "link_hover": self.action_yt_link_hover,
+                        },
+                        "rich_link_color": "red",
+                    },
+                )
+
+                if it.left_clicked and self.app.can_interact():
+                    pygame.scrap.put_text(url)
 
     def ui_music_interaction(self, music: MusicData, cont: mili.Interaction, i=-1):
         if self.app.can_interact():
@@ -754,13 +993,53 @@ class PlaylistViewerUI(UIComponent):
                 {"color": (MUSIC_CV[1] + 15,) * 3, "border_radius": 0, "outline": 1}
             )
 
+    def action_yt_link_click(self, data: str):
+        if not self.app.can_interact():
+            return
+        action, url = data.split("$", 1)
+        if action == "copy":
+            pygame.scrap.put_text(url)
+        elif action == "open":
+            webbrowser.open(url)
+        elif action == "channel":
+            webbrowser.open(url)
+
+    def action_yt_link_hover(self, data: str):
+        action, url = data.split("$", 1)
+        self.next_cursor_data = url
+
     def open_menu(self, music: MusicData):
-        buttons = [
+        before = []
+        if music not in self.state.queue or self.state.music is None:
+            before.append(
+                MenuButton(
+                    ICONS.queue,
+                    self.action_add_to_queue,
+                    self.menu_anims[12],
+                    "50",
+                    "Play"
+                    if self.state.music is None
+                    else (
+                        "Play next" if len(self.state.queue) == 0 else "Add to queue"
+                    ),
+                )
+            )
+        buttons = before + [
             MenuButton(
                 ICONS.rename,
                 self.action_rename,
                 self.menu_anims[1],
                 tooltip="Rename track",
+            ),
+            MenuButton(
+                ICONS.favorite
+                if music.realpath in self.playlist.favorites
+                else ICONS.not_favorite,
+                self.action_favorite,
+                self.menu_anims[11],
+                tooltip="Remove from favorites"
+                if music.realpath in self.playlist.favorites
+                else "Add to favorites",
             ),
             MenuButton(
                 ICONS.forward,
@@ -834,10 +1113,69 @@ class PlaylistViewerUI(UIComponent):
                     self.action_delete,
                     self.menu_anims[8],
                     tooltip="Delete track",
+                    red=True,
                 ),
             ]
         )
         self.app.open_menu(music, *buttons)
+
+    def action_add_to_queue(self):
+        if self.state.music is None:
+            self.action_start_playing(self.app.menu_data)
+        else:
+            self.state.queue.append(self.app.menu_data)
+        self.app.close_menu()
+
+    def action_yt_stop_sync(self):
+        if not self.yt_syncer.alive or self.yt_syncer.thread is None:
+            return
+        self.yt_syncer.alive = False
+        self.yt_syncer.thread.join()
+        self.yt_syncer.playlist = None
+
+    def action_yt_sync(self):
+        if self.yt_syncer.alive:
+            return
+        self.yt_syncer.alive = True
+        self.yt_syncer.playlist = self.playlist
+        self.yt_syncer.video_covers = {}
+        thread = threading.Thread(target=self.yt_syncer.sync_async, daemon=True)
+        self.yt_syncer.thread = thread
+        thread.start()
+
+    def yt_sync_refresh_files(self, playlist=None):
+        playlist: Playlist = self.yt_syncer.playlist if playlist is None else playlist
+        realpaths = [pathlib.Path(path).absolute() for path in playlist.realpaths]
+        for file in os.listdir(f"{DATA_PATH}/yt_playlists/{playlist.name}"):
+            full = pathlib.Path(
+                f"{DATA_PATH}/yt_playlists/{playlist.name}/{file}"
+            ).absolute()
+            suffixes = [
+                suffix
+                for suffix in full.suffixes
+                if len(suffix) <= 5 and len(suffix) >= 2
+            ]
+            if full.suffix[1:] not in FORMATS or "part" in file or len(suffixes) > 1:
+                continue
+            if pathlib.Path(file) not in realpaths:
+                music = playlist.load_music(full, ICONS.loading)
+                if music is not None and music.yt_id in self.yt_syncer.video_covers:
+                    music.cover = self.yt_syncer.video_covers[music.yt_id]
+                    music.loaded_cover = True
+        self.yt_need_refresh = False
+
+    def action_yt_show_details(self):
+        self.yt_show_details = not self.yt_show_details
+
+    def action_yt_open_link(self):
+        webbrowser.open(self.playlist.yt_link)
+
+    def action_refresh_folder(self):
+        realpaths = self.playlist.realpaths
+        for file in os.listdir(self.playlist.folder_path):
+            full = pathlib.Path(os.path.join(self.playlist.folder_path, file))
+            if full.suffix[1:] in FORMATS and full not in realpaths:
+                self.playlist.load_music(full, ICONS.loading)
 
     def action_folder_move(self):
         if self.app.menu_data is self.state.music:
@@ -890,6 +1228,22 @@ class PlaylistViewerUI(UIComponent):
             NOTIF.CONFIRM, f"Track's location was updated succesfully to '{path}'"
         )
 
+    def action_favorite(self):
+        if self.app.menu_data.realpath in self.playlist.favorites:
+            self.playlist.favorites.remove(self.app.menu_data.realpath)
+            self.app.favorites.remove(self.app.menu_data)
+            self.app.menu_data.favorite = False
+        else:
+            self.playlist.favorites.append(self.app.menu_data.realpath)
+            self.app.favorites.append(self.app.menu_data)
+            self.app.menu_data.favorite = True
+        self.app.close_menu()
+
+    def unfavorite(self, music: MusicData):
+        music.playlist.favorites.remove(music.realpath)
+        self.app.favorites.remove(music)
+        music.favorite = False
+
     def action_change_cover(self):
         music: MusicData = self.app.menu_data
         path = filedialog.askopenfilename()
@@ -900,7 +1254,7 @@ class PlaylistViewerUI(UIComponent):
                 music.loaded_cover = True
                 pygame.image.save(
                     img,
-                    f"data/music_covers/{self.playlist.name}_{music.realstem}.png",
+                    f"{DATA_PATH}/music_covers/{self.playlist.name}_{music.realstem}.png",
                 )
             except Exception as e:
                 messagebox_notify(
@@ -956,7 +1310,7 @@ class PlaylistViewerUI(UIComponent):
             return
         music = self.app.menu_data
         new_path = pathlib.Path(
-            f"data/mp3_converted/{self.playlist.name}_{music.realstem}.mp3"
+            f"{DATA_PATH}/mp3_converted/{self.playlist.name}_{music.realstem}.mp3"
         ).resolve()
         if os.path.exists(new_path):
             self.app.close_menu()
@@ -1006,13 +1360,16 @@ class PlaylistViewerUI(UIComponent):
     def action_cover(self):
         self.modal_state = "cover"
         self.change_cover.selected_image = self.playlist.cover
+        for music in self.playlist.musiclist:
+            if not music.loaded_cover and music.cover_path is not None:
+                music.load_cover_async(music.cover_path, ICONS.loading)
 
     def action_add_music(self):
         self.modal_state = "add"
 
     def back(self):
         for music in self.playlist.musiclist:
-            if music is self.state.music:
+            if music is self.state.music or music.favorite:
                 continue
             music.loading_cover = False
             music.loaded_cover = False
@@ -1023,8 +1380,12 @@ class PlaylistViewerUI(UIComponent):
     def action_rename(self):
         self.modal_state = "rename"
         self.rename_music.music = self.app.menu_data
-        self.rename_music.entryline.text = self.rename_music.music.realstem
-        self.rename_music.entryline.cursor = len(self.rename_music.entryline.text)
+        self.rename_music.disk_entry.set_text(self.rename_music.music.realstem)
+        alias = self.rename_music.music.alias
+        if alias is None:
+            alias = ""
+        self.rename_music.alias_entry.set_text(alias)
+        # ADD CURRENT ALIAS TO IT
         self.app.close_menu()
 
     def action_rename_group(self):
@@ -1083,7 +1444,7 @@ class PlaylistViewerUI(UIComponent):
             path = self.app.menu_data.audiopath
             self.playlist.remove(path)
             if btn == 1:
-                mp3_path = f"data/mp3_converted/{self.playlist.name}_{self.app.menu_data.realstem}.mp3"
+                mp3_path = f"{DATA_PATH}/mp3_converted/{self.playlist.name}_{self.app.menu_data.realstem}.mp3"
                 if os.path.exists(mp3_path):
                     os.remove(mp3_path)
             self.app.notify(
@@ -1131,12 +1492,15 @@ class PlaylistViewerUI(UIComponent):
         self.search_entryline.text = ""
 
     def set_scroll_to_music(self, increase=False, incdir=1):
+        if self.state.music.require_ffplay:
+            return
         if self.state.music.group is not None:
             self.state.music.group.collapsed = False
         if increase:
-            self.scroll.scroll(0, (self.mult(80) + 6) * incdir)
-            # self.scrollbar.scroll_moved()
+            self.deferred_scroll = "increase", (self.mult(80) + 6) * incdir
+            self.deferred_scroll_time = pygame.time.get_ticks()
             return
+        self.enter(self.state.music.playlist)
         remove_amount = 0
         group_amount = 0
         line_amount = 0
@@ -1155,8 +1519,8 @@ class PlaylistViewerUI(UIComponent):
                         remove_amount += len(group.musics) - 1
                     elif group.idx < self.state.music_index:
                         line_amount += 1
-        self.scroll.set_scroll(
-            0,
+        self.deferred_scroll = (
+            "set",
             (
                 ((self.state.music_index - 1) * (self.mult(80) + 3))
                 - (remove_amount * (self.mult(80) + 3))
@@ -1164,7 +1528,7 @@ class PlaylistViewerUI(UIComponent):
                 + (line_amount * (self.mult(7) + 3))
             ),
         )
-        # self.scrollbar.scroll_moved()
+        self.deferred_scroll_time = pygame.time.get_ticks()
 
     def reorder_musics_groups(self, event):
         mult = 1
@@ -1278,6 +1642,13 @@ class PlaylistViewerUI(UIComponent):
             and self.app.modal_state == "none"
         ):
             self.search_entryline.event(event)
+        if (
+            self.playlist.is_yt
+            and self.app.can_interact()
+            and self.modal_state == "none"
+            and self.app.modal_state == "none"
+        ):
+            self.link_entryline.event(event)
         if event.type == pygame.MOUSEBUTTONUP and event.button == pygame.BUTTON_MIDDLE:
             self.middle_selected = None
         if (
@@ -1306,8 +1677,3 @@ class PlaylistViewerUI(UIComponent):
                 self.stop_searching()
             else:
                 self.action_search()
-        elif Keybinds.check("change_cover", event):
-            if self.modal_state == "cover":
-                self.change_cover.close()
-            else:
-                self.action_cover()
